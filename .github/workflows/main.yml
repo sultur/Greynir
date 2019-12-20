@@ -11,7 +11,7 @@ jobs:
     - uses: mideind/Greynir/.github/actions/test-action@v1 # Uses an action in the root directory
     - name: Hello world action step
       id: hello
-      uses: mideind/Greynir
+      uses: mideind/Greynir@v1
       with:
         who-to-greet: 'Mona the Octocat'
     # Use the output from the `hello` step
