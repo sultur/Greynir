@@ -7,7 +7,7 @@ jobs:
     steps:
     # To use this repository's private action, you must check out the repository
     - name: Checkout
-      uses: mideind/Greynir
+      uses: mideind/Greynir@v1
     - uses: mideind/Greynir/.github/actions/test-action # Uses an action in the root directory
     - name: Hello world action step
       id: hello
