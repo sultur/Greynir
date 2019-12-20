@@ -7,11 +7,11 @@ jobs:
     steps:
     # To use this repository's private action, you must check out the repository
     - name: Checkout
-      uses: .github/actions/test-action@v1
-    - uses: ./ # Uses an action in the root directory
+      uses: mideind/Greynir
+    - uses: ./.github/actions/test-action # Uses an action in the root directory
     - name: Hello world action step
       id: hello
-      uses: .github/actions/test-action@v1
+      uses: mideind/Greynir
       with:
         who-to-greet: 'Mona the Octocat'
     # Use the output from the `hello` step
