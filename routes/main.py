@@ -72,21 +72,12 @@ _DEFAULT_TEXTS = [
     "Hver er Íslandsmeistari í golfi?",
 ]
 
-PARSEFAIL_DEFAULT = 50
-PARSEFAIL_MAX = 250
-
 
 @routes.route("/")
 @max_age(seconds=60)
 def main():
     """ Handler for the main (index) page """
-    txt = request.args.get("txt")
-    if txt:
-        txt = txt.strip()
-    if not txt:
-        # Select a random default text
-        txt = _DEFAULT_TEXTS[random.randint(0, len(_DEFAULT_TEXTS) - 1)]
-    return render_template("main.html", default_text=txt)
+    return render_template("main.html")
 
 
 @routes.route("/analysis")
@@ -94,6 +85,19 @@ def analysis():
     """ Handler for a page with grammatical analysis of user-entered text """
     txt = request.args.get("txt", "")[0:_MAX_TEXT_LENGTH_VIA_URL]
     return render_template("analysis.html", title="Málgreining", default_text=txt)
+
+
+@routes.route("/query")
+@max_age(seconds=60)
+def query():
+    """ Handler for the main (index) page """
+    txt = request.args.get("txt")
+    if txt:
+        txt = txt.strip()
+    if not txt:
+        # Select a random default text
+        txt = _DEFAULT_TEXTS[random.randint(0, len(_DEFAULT_TEXTS) - 1)]
+    return render_template("query.html", default_text=txt)
 
 
 @routes.route("/correct", methods=["GET", "POST"])
@@ -203,7 +207,6 @@ def tree_grid():
     def _wrap_build_tbl(
         tbl, root, is_nt_func, children_func, nt_info_func, t_info_func
     ):
-
         def _build_tbl(level, offset, nodelist):
             """ Add the tree node data to be displayed at a particular
                 level (row) in the result table """
@@ -295,6 +298,10 @@ def tree_grid():
     )
 
 
+PARSEFAIL_DEFAULT = 50
+PARSEFAIL_MAX = 250
+
+
 @routes.route("/parsefail")
 def parsefail():
     """ Handler for a page showing recent sentences where parsing failed """
@@ -302,7 +309,7 @@ def parsefail():
     num = request.args.get("num", PARSEFAIL_DEFAULT)
     try:
         num = min(int(num), PARSEFAIL_MAX)
-    except:
+    except Exception:
         num = PARSEFAIL_DEFAULT
 
     with SessionContext(read_only=True) as session:
@@ -479,9 +486,7 @@ def suggest(limit=10):
         )
 
         prefix = prefix[:1].upper() + prefix[1:].lower()
-        suggestions = [
-            {"value": (prefix + p[0] + "?"), "data": ""} for p in q
-        ]
+        suggestions = [{"value": (prefix + p[0] + "?"), "data": ""} for p in q]
 
     return better_jsonify(suggestions=suggestions)
 
