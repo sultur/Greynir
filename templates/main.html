@@ -9,48 +9,67 @@
 
 {% block content %}
 
+<style type="text/css">
 
-<h1 style="text-align:center; margin-top:0; margin-bottom:30px; /*color: #005eff;*/">Greynir - Málgreining fyrir íslensku</h1>
+.row p {
+/*   display: none;*/
+}
+
+.frontitem {
+   margin-top: 10px;
+}
+
+.front-container {
+   margin: 10px;
+}
+</style>
+
+<h1 style="text-align:center; margin-top:20px; margin-bottom:30px; /*color: #005eff;*/">Greynir - Málgreining fyrir íslensku</h1>
 
 <div class="row">
-   <div class="col-md-4">
-      <div class="panel panel-info">
-         <div class="panel-heading">Lorem ipsum</div>
-         <p>Lorem ipsum, or lipsum as it is sometimes known, is dummy text used in laying out print, graphic or web designs. The passage is attributed to an unknown typesetter in the 15th century who is thought to have scrambled parts of Cicero's De Finibus Bonorum et Malorum for use in a type specimen book.</p>
+   <div class="col-md-4 col-sm-6 frontitem">
+      <div class="front-container">
+         <h2 style="margin-top: 0">Málgreining</h2>
+         <img src="/static/img/front/malgreining2.png" style="max-width: 100%;">
+         <p>Sjálfvirk málgreining á íslenskum texta.</p>
       </div>
    </div>
-   <div class="col-md-4">
-      <div class="panel panel-info">
-         <div class="panel-heading">Lorem ipsum</div>
-         <p>Lorem ipsum, or lipsum as it is sometimes known, is dummy text used in laying out print, graphic or web designs. The passage is attributed to an unknown typesetter in the 15th century who is thought to have scrambled parts of Cicero's De Finibus Bonorum et Malorum for use in a type specimen book.</p>
+   <div class="col-md-4 col-sm-6 frontitem">
+      <div class="front-container">
+         <h2 style="margin-top: 0">Yfirlestur</h2>
+         <img src="/static/img/front/yfirlestur.png" style="max-width: 100%;">
+         <p>Finnur ýmislegt sem betur mætti fara í stafsetningu og málfari.</p>
       </div>
    </div>
-   <div class="col-md-4">
-      <div class="panel panel-info">
-         <div class="panel-heading">Lorem ipsum</div>
-         <p>Lorem ipsum, or lipsum as it is sometimes known, is dummy text used in laying out print, graphic or web designs. The passage is attributed to an unknown typesetter in the 15th century who is thought to have scrambled parts of Cicero's De Finibus Bonorum et Malorum for use in a type specimen book.</p>
+   <div class="col-md-4 col-sm-6 frontitem">
+      <div class="front-container">
+         <h2 style="margin-top: 0">Embla</h2>
+         <img src="https://via.placeholder.com/500x350.png" style="max-width: 100%;">
+         <p>Fyrirspurnakerfi sem svarar spurningum á íslensku.</p>
       </div>
    </div>
-   <div class="col-md-4">
-      <div class="panel panel-info">
-         <div class="panel-heading">Lorem ipsum</div>
-         <p>Lorem ipsum, or lipsum as it is sometimes known, is dummy text used in laying out print, graphic or web designs. The passage is attributed to an unknown typesetter in the 15th century who is thought to have scrambled parts of Cicero's De Finibus Bonorum et Malorum for use in a type specimen book.</p>
+   <div class="col-md-4 col-sm-6 frontitem">
+      <div class="front-container">
+         <h2 style="margin-top: 0">Fréttagreining</h2>
+         <img src="/static/img/front/frettir.png" style="max-width: 100%;">
+         <p>Greynir les og greinir texta frá helstu vefmiðlum landsins.</p>
       </div>
    </div>
-   <div class="col-md-4">
-      <div class="panel panel-info">
-         <div class="panel-heading">Lorem ipsum</div>
-         <p>Lorem ipsum, or lipsum as it is sometimes known, is dummy text used in laying out print, graphic or web designs. The passage is attributed to an unknown typesetter in the 15th century who is thought to have scrambled parts of Cicero's De Finibus Bonorum et Malorum for use in a type specimen book.</p>
+   <div class="col-md-4 col-sm-6 frontitem">
+      <div class="front-container">
+         <h2 style="margin-top: 0">Orðtíðni</h2>
+         <img src="/static/img/front/words.png" style="max-width: 100%;">
+         <p>Tíðni orða í nýlegum fréttum vefmiðla.</p>
       </div>
    </div>
-   <div class="col-md-4">
-      <div class="panel panel-info">
-         <div class="panel-heading">Lorem ipsum</div>
-         <p>Lorem ipsum, or lipsum as it is sometimes known, is dummy text used in laying out print, graphic or web designs. The passage is attributed to an unknown typesetter in the 15th century who is thought to have scrambled parts of Cicero's De Finibus Bonorum et Malorum for use in a type specimen book.</p>
+   <div class="col-md-4 col-sm-6 frontitem">
+      <div class="front-container">
+         <h2 style="margin-top: 0">Fólk</h2>
+         <img src="/static/img/front/folk.png" style="max-width: 100%;">
+         <p>Fólk sem hefur komið fyrir í fjölmiðlum.</p>
       </div>
    </div>
 </div>
-
 
 {% endblock %}
 
@@ -58,9 +77,11 @@
 
 <script>
 
-   $(document).ready(function() {
+   function debugMode() {
+      return false;
+   }
 
-   });
+   $(document).ready(initMain);
 
 </script>
 
