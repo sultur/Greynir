@@ -25,7 +25,6 @@ from typing import Dict, Any, List, Tuple
 
 import platform
 import sys
-import platform
 import random
 import json
 from datetime import datetime
@@ -107,7 +106,7 @@ def correct():
         of user-entered text """
     try:
         txt = text_from_request(request, post_field="txt", get_field="txt")
-    except:
+    except Exception:
         txt = ""
     return render_template(
         "correct.html",
@@ -330,7 +329,7 @@ def parsefail():
         for a in q.all():
             try:
                 tokens = json.loads(a.tokens)
-            except:
+            except Exception:
                 continue
             # Paragraphs
             for p in tokens:
@@ -427,7 +426,7 @@ def image():
     name = request.args.get("name")
     try:
         thumb = int(request.args.get("thumb", 0))
-    except:
+    except Exception:
         thumb = 0
 
     if name:
