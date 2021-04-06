@@ -2,7 +2,7 @@
 
     Greynir: Natural language processing for Icelandic
 
-    Copyright (C) 2020 Miðeind ehf.
+    Copyright (C) 2021 Miðeind ehf.
 
        This program is free software: you can redistribute it and/or modify
        it under the terms of the GNU General Public License as published by
@@ -23,25 +23,56 @@
 
 import pytest
 import os
+import json
 from urllib.parse import urlencode
+import sys
+
+from flask.testing import FlaskClient
+
+# Shenanigans to enable Pytest to discover modules in the
+# main workspace directory (the parent of /tests)
+basepath, _ = os.path.split(os.path.realpath(__file__))
+mainpath = os.path.join(basepath, "..")
+if mainpath not in sys.path:
+    sys.path.insert(0, mainpath)
 
 from main import app
 from db import SessionContext
-from db.models import Query
+from db.models import Query, QueryData
+from util import read_api_key
 
 # pylint: disable=unused-wildcard-import
 from geo import *
 
 
 @pytest.fixture
-def client():
+def client() -> FlaskClient:
     """ Instantiate Flask's modified Werkzeug client to use in tests """
     app.config["TESTING"] = True
     app.config["DEBUG"] = True
     return app.test_client()
 
 
-# Routes that don't return 200 OK without certain query/post parameters or external services
+# See .travis.yml, this value is dumped to the API key path during CI testing
+DUMMY_API_KEY = "123456789"
+
+
+def in_ci_environment() -> bool:
+    """ This function determines whether the tests are running in the
+        continuous integration environment by checking if the API key
+        is a dummy value (set in .travis.yml). """
+    global DUMMY_API_KEY
+    try:
+        return read_api_key("GreynirServerKey") == DUMMY_API_KEY
+    except Exception:
+        return False
+
+
+IN_CI_TESTING_ENV = in_ci_environment()
+
+
+# Routes that don't return 200 OK without certain
+# query/post parameters or external services
 SKIP_ROUTES = frozenset(
     (
         "/staticmap",
@@ -58,7 +89,7 @@ SKIP_ROUTES = frozenset(
 REQ_METHODS = frozenset(["GET", "POST"])
 
 
-def test_routes(client):
+def test_routes(client: FlaskClient):
     """ Test all non-argument routes in Flask app by requesting
         them without passing any query or post parameters """
     for rule in app.url_map.iter_rules():
@@ -84,7 +115,7 @@ API_ROUTES = [
 ]
 
 
-def test_api(client):
+def test_api(client: FlaskClient):
     """ Call API routes and validate response. """
     # TODO: Route-specific validation of JSON responses
     for r in API_ROUTES:
@@ -94,8 +125,8 @@ def test_api(client):
         assert resp.content_type.startswith(API_CONTENT_TYPE)
 
 
-def test_postag_api(client):
-    resp = client.get(r"/postag.api?t=Hér%20sé%20ást%20og%20friður")
+def test_postag_api(client: FlaskClient):
+    resp = client.get(r"/postag.api?t=Hér%20er%20ást%20og%20friður")
     assert resp.status_code == 200
     assert resp.content_type == "application/json; charset=utf-8"
     assert "result" in resp.json
@@ -103,8 +134,8 @@ def test_postag_api(client):
     assert len(resp.json["result"][0]) == 5
 
 
-def test_ifdtag_api(client):
-    resp = client.get(r"/ifdtag.api?t=Hér%20sé%20ást%20og%20friður")
+def test_ifdtag_api(client: FlaskClient):
+    resp = client.get(r"/ifdtag.api?t=Hér%20er%20ást%20og%20friður")
     assert resp.status_code == 200
     assert resp.content_type == "application/json; charset=utf-8"
     assert "valid" in resp.json
@@ -118,35 +149,94 @@ def test_ifdtag_api(client):
     # assert len(resp.json["result"][0]) == 5
 
 
-def test_del_query_history(client):
-    """ Test query history deletion API. """
+_KEY_RESTRICTED_ROUTES = frozenset(
+    (
+        # "/query_history.api",  # Disabled for now until clients are updated w. API key
+        "/speech.api",
+    )
+)
+
+
+def test_api_key_restriction(client: FlaskClient):
+    """ Make calls to routes that are API key restricted, make sure they complain if no
+        API key is provided as a parameter and accept when correct API key is provided. """
+
+    # Try routes without API key, expect complaint about missing API key
+    for path in _KEY_RESTRICTED_ROUTES:
+        resp = client.post(path)
+        assert resp.status_code == 200
+        assert resp.content_type == "application/json; charset=utf-8"
+        assert isinstance(resp.json, dict)
+        assert "errmsg" in resp.json.keys() and "missing API key" in resp.json["errmsg"]
+
+    # Try routes w. correct API key, expect no complaints about missing API key
+    # This only runs in the CI testing environment, which creates the dummy key
+    global DUMMY_API_KEY
+    if False and IN_CI_TESTING_ENV:
+        for path in _KEY_RESTRICTED_ROUTES:
+            resp = client.post(f"{path}?key={DUMMY_API_KEY}")
+            assert resp.status_code == 200
+            assert resp.content_type == "application/json; charset=utf-8"
+            assert isinstance(resp.json, dict)
+            assert "errmsg" not in resp.json.keys()
+
+    # This route requires special handling since it receives JSON via POST
+    resp = client.post(
+        "/register_query_data.api",
+        data=json.dumps(dict()),
+        content_type="application/json",
+    )
+    assert resp.status_code == 200
+    assert resp.content_type == "application/json; charset=utf-8"
+    assert "errmsg" in resp.json and "missing API key" in resp.json["errmsg"]
+
+
+def test_query_history_api(client: FlaskClient):
+    """ Test query history and query data deletion API. """
+
+    # We don't run these tests except during the CI testing process, for fear of
+    # corrupting existing data when developers run them on their local machine.
+    if not IN_CI_TESTING_ENV:
+        return
+
+    _TEST_CLIENT_ID = "123456789"
 
     with SessionContext(commit=False) as session:
-        # If database contains the logged query "GREYNIR_TESTING" we know the
-        # tests are running on the dummy data in tests/test_files/test_queries.csv.
-        cnt = session.query(Query).filter(Query.question == "GREYNIR_TESTING").count()
-        if not cnt == 1:
-            return
-
+        # First test API w. "clear" action (which clears query history only)
         # Num queries in dummy test data
         TEST_EXPECTED_NUM_QUERIES = 6
 
-        # We expect one query with this client ID
-        TEST_CLIENT_ID = "123456789"
-
         # Number of queries prior to API call
         pre_numq = session.query(Query).count()
-        assert pre_numq == TEST_EXPECTED_NUM_QUERIES, "Malformed dummy test data"
+        assert (
+            pre_numq == TEST_EXPECTED_NUM_QUERIES
+        ), "Malformed queries dummy test data"
 
-        qstr = urlencode(
-            {"action": "clear", "client_type": "some_type", "client_id": TEST_CLIENT_ID}
-        )
+        qstr = urlencode({"action": "clear", "client_id": _TEST_CLIENT_ID})
 
         _ = client.get("/query_history.api?" + qstr)
 
         post_numq = session.query(Query).count()
 
         assert post_numq == pre_numq - 1
+
+        # Test API w. "clear_all" action (which clears query both history and querydata)
+        # Num queries in dummy test data
+        TEST_EXPECTED_NUM_QUERYDATA = 2
+
+        # Number of querydata rows prior to API call
+        pre_numq = session.query(QueryData).count()
+        assert (
+            pre_numq == TEST_EXPECTED_NUM_QUERYDATA
+        ), "Malformed querydata dummy test data"
+
+        qstr = urlencode({"action": "clear_all", "client_id": _TEST_CLIENT_ID})
+
+        _ = client.get("/query_history.api?" + qstr)
+
+        post_numqdata_cnt = session.query(QueryData).count()
+
+        assert post_numqdata_cnt == pre_numq - 1
 
 
 def test_processors():
@@ -159,9 +249,13 @@ def test_processors():
 def test_nertokenizer():
     from nertokenizer import recognize_entities
 
+    assert recognize_entities
+
 
 def test_postagger():
     from postagger import NgramTagger
+
+    assert NgramTagger
 
 
 def test_query():
@@ -173,22 +267,51 @@ def test_query():
 
     assert HANDLE_TREE is True
     assert handle_plain_text
+    assert Query  # Silence linter
 
 
 def test_scraper():
     from scraper import Scraper
 
+    assert Scraper
+
 
 def test_search():
     from search import Search
+
+    assert Search  # Silence linter
 
 
 def test_tnttagger():
     from tnttagger import TnT
 
+    assert TnT  # Silence linter
+
 
 def test_geo():
     """ Test geography and location-related functions in geo.py """
+    from geo import (
+        icelandic_city_name,
+        continent_for_country,
+        coords_for_country,
+        coords_for_street_name,
+        country_name_for_isocode,
+        isocode_for_country_name,
+        icelandic_addr_info,
+        lookup_city_info,
+        parse_address_string,
+        iceprep_for_street,
+        iceprep_for_placename,
+        iceprep_for_country,
+        iceprep_for_cc,
+        capitalize_placename,
+        distance,
+        in_iceland,
+        code_for_us_state,
+        coords_for_us_state_code,
+        location_info,
+    )
+
     assert icelandic_city_name("London") == "Lundúnir"
     assert icelandic_city_name("Rome") == "Róm"
 
@@ -196,11 +319,11 @@ def test_geo():
     assert continent_for_country("no") == "EU"
     assert continent_for_country("MX") == "NA"
 
-    assert coords_for_country("DE") != None
-    assert coords_for_country("it") != None
+    assert coords_for_country("DE") is not None
+    assert coords_for_country("it") is not None
 
-    assert coords_for_street_name("Austurstræti") != None
-    assert coords_for_street_name("Háaleitisbraut") != None
+    assert coords_for_street_name("Austurstræti") is not None
+    assert coords_for_street_name("Háaleitisbraut") is not None
 
     assert country_name_for_isocode("DE", lang="is") == "Þýskaland"
     assert country_name_for_isocode("DE") == "Þýskaland"
@@ -229,7 +352,7 @@ def test_geo():
     assert parse_address_string("   Fiskislóð  31") == {
         "street": "Fiskislóð",
         "number": 31,
-        "letter": None,
+        "letter": "",
     }
     assert parse_address_string("Öldugata 19c ") == {
         "street": "Öldugata",
@@ -239,7 +362,7 @@ def test_geo():
     assert parse_address_string("    Dúfnahólar   10   ") == {
         "street": "Dúfnahólar",
         "number": 10,
-        "letter": None,
+        "letter": "",
     }
 
     # Test prepositions for street names
@@ -287,6 +410,27 @@ def test_geo():
     assert not in_iceland((62.010846, -6.776709))
     assert not in_iceland((62.031342, -18.539553))
 
+    # US States
+    assert code_for_us_state("Flórída") == "FL"
+    assert code_for_us_state("Norður-Karólína") == "NC"
+    assert code_for_us_state("Kalifornía") == "CA"
+    assert coords_for_us_state_code("CA") == [36.778261, -119.417932]
+
+    # Generic location info lookup functions
+    assert "country" in location_info("Reykjavík", "placename")
+    assert "continent" in location_info("Minsk", "placename")
+    assert location_info("Japan", "country")["continent"] == "AS"
+    assert location_info("Danmörk", "country")["continent"] == "EU"
+    assert location_info("Mexíkó", "country")["continent"] == "NA"
+    assert location_info("ísafjörður", "placename")["continent"] == "EU"
+    assert location_info("Meðalfellsvatn", "placename")["country"] == "IS"
+    assert location_info("Georgía", "country")["country"] != "US"
+    assert location_info("Virginía", "placename")["country"] == "US"
+    assert location_info("Norður-Dakóta", "country")["country"] == "US"
+    assert location_info("Kænugarður", "placename")["continent"] == "EU"
+    assert location_info("Fiskislóð 31", "address")["country"] == "IS"
+
+
 def test_doc():
     """ Test document-related functions in doc.py """
     from doc import PlainTextDocument, DocxDocument
@@ -308,167 +452,3 @@ def test_doc():
 
     # Change back to previous directory
     os.chdir(prev_dir)
-
-
-def test_numbers():
-    """ Test number handling functionality in queries """
-    from queries import numbers_to_neutral
-
-    assert numbers_to_neutral("Baugatangi 1, Reykjavík") == "Baugatangi eitt, Reykjavík"
-    assert numbers_to_neutral("Baugatangi 2, Reykjavík") == "Baugatangi tvö, Reykjavík"
-    assert numbers_to_neutral("Baugatangi 3, Reykjavík") == "Baugatangi þrjú, Reykjavík"
-    assert (
-        numbers_to_neutral("Baugatangi 4, Reykjavík") == "Baugatangi fjögur, Reykjavík"
-    )
-    assert numbers_to_neutral("Baugatangi 5, Reykjavík") == "Baugatangi 5, Reykjavík"
-    assert numbers_to_neutral("Baugatangi 10, Reykjavík") == "Baugatangi 10, Reykjavík"
-    assert numbers_to_neutral("Baugatangi 11, Reykjavík") == "Baugatangi 11, Reykjavík"
-    assert numbers_to_neutral("Baugatangi 12, Reykjavík") == "Baugatangi 12, Reykjavík"
-    assert numbers_to_neutral("Baugatangi 13, Reykjavík") == "Baugatangi 13, Reykjavík"
-    assert numbers_to_neutral("Baugatangi 14, Reykjavík") == "Baugatangi 14, Reykjavík"
-    assert numbers_to_neutral("Baugatangi 15, Reykjavík") == "Baugatangi 15, Reykjavík"
-    assert numbers_to_neutral("Baugatangi 20, Reykjavík") == "Baugatangi 20, Reykjavík"
-    assert (
-        numbers_to_neutral("Baugatangi 21, Reykjavík")
-        == "Baugatangi tuttugu og eitt, Reykjavík"
-    )
-    assert (
-        numbers_to_neutral("Baugatangi 22, Reykjavík")
-        == "Baugatangi tuttugu og tvö, Reykjavík"
-    )
-    assert (
-        numbers_to_neutral("Baugatangi 23, Reykjavík")
-        == "Baugatangi tuttugu og þrjú, Reykjavík"
-    )
-    assert (
-        numbers_to_neutral("Baugatangi 24, Reykjavík")
-        == "Baugatangi tuttugu og fjögur, Reykjavík"
-    )
-    assert numbers_to_neutral("Baugatangi 25, Reykjavík") == "Baugatangi 25, Reykjavík"
-    assert (
-        numbers_to_neutral("Baugatangi 100, Reykjavík") == "Baugatangi 100, Reykjavík"
-    )
-    assert (
-        numbers_to_neutral("Baugatangi 101, Reykjavík")
-        == "Baugatangi hundrað og eitt, Reykjavík"
-    )
-    assert (
-        numbers_to_neutral("Baugatangi 102, Reykjavík")
-        == "Baugatangi hundrað og tvö, Reykjavík"
-    )
-    assert (
-        numbers_to_neutral("Baugatangi 103, Reykjavík")
-        == "Baugatangi hundrað og þrjú, Reykjavík"
-    )
-    assert (
-        numbers_to_neutral("Baugatangi 104, Reykjavík")
-        == "Baugatangi hundrað og fjögur, Reykjavík"
-    )
-    assert (
-        numbers_to_neutral("Baugatangi 105, Reykjavík") == "Baugatangi 105, Reykjavík"
-    )
-    assert (
-        numbers_to_neutral("Baugatangi 111, Reykjavík") == "Baugatangi 111, Reykjavík"
-    )
-    assert (
-        numbers_to_neutral("Baugatangi 112, Reykjavík") == "Baugatangi 112, Reykjavík"
-    )
-    assert (
-        numbers_to_neutral("Baugatangi 113, Reykjavík") == "Baugatangi 113, Reykjavík"
-    )
-    assert (
-        numbers_to_neutral("Baugatangi 114, Reykjavík") == "Baugatangi 114, Reykjavík"
-    )
-    assert (
-        numbers_to_neutral("Baugatangi 115, Reykjavík") == "Baugatangi 115, Reykjavík"
-    )
-    assert (
-        numbers_to_neutral("Baugatangi 121, Reykjavík")
-        == "Baugatangi hundrað tuttugu og eitt, Reykjavík"
-    )
-    assert (
-        numbers_to_neutral("Baugatangi 174, Reykjavík")
-        == "Baugatangi hundrað sjötíu og fjögur, Reykjavík"
-    )
-    assert (
-        numbers_to_neutral("Baugatangi 200, Reykjavík") == "Baugatangi 200, Reykjavík"
-    )
-    assert (
-        numbers_to_neutral("Baugatangi 201, Reykjavík")
-        == "Baugatangi tvö hundruð og eitt, Reykjavík"
-    )
-    assert (
-        numbers_to_neutral("Baugatangi 202, Reykjavík")
-        == "Baugatangi tvö hundruð og tvö, Reykjavík"
-    )
-    assert (
-        numbers_to_neutral("Baugatangi 203, Reykjavík")
-        == "Baugatangi tvö hundruð og þrjú, Reykjavík"
-    )
-    assert (
-        numbers_to_neutral("Baugatangi 204, Reykjavík")
-        == "Baugatangi tvö hundruð og fjögur, Reykjavík"
-    )
-    assert (
-        numbers_to_neutral("Baugatangi 205, Reykjavík") == "Baugatangi 205, Reykjavík"
-    )
-    assert (
-        numbers_to_neutral("Baugatangi 211, Reykjavík") == "Baugatangi 211, Reykjavík"
-    )
-    assert (
-        numbers_to_neutral("Baugatangi 212, Reykjavík") == "Baugatangi 212, Reykjavík"
-    )
-    assert (
-        numbers_to_neutral("Baugatangi 213, Reykjavík") == "Baugatangi 213, Reykjavík"
-    )
-    assert (
-        numbers_to_neutral("Baugatangi 214, Reykjavík") == "Baugatangi 214, Reykjavík"
-    )
-    assert (
-        numbers_to_neutral("Baugatangi 215, Reykjavík") == "Baugatangi 215, Reykjavík"
-    )
-    assert (
-        numbers_to_neutral("Baugatangi 700, Reykjavík") == "Baugatangi 700, Reykjavík"
-    )
-    assert (
-        numbers_to_neutral("Baugatangi 701, Reykjavík")
-        == "Baugatangi sjö hundruð og eitt, Reykjavík"
-    )
-    assert (
-        numbers_to_neutral("Baugatangi 702, Reykjavík")
-        == "Baugatangi sjö hundruð og tvö, Reykjavík"
-    )
-    assert (
-        numbers_to_neutral("Baugatangi 703, Reykjavík")
-        == "Baugatangi sjö hundruð og þrjú, Reykjavík"
-    )
-    assert (
-        numbers_to_neutral("Baugatangi 704, Reykjavík")
-        == "Baugatangi sjö hundruð og fjögur, Reykjavík"
-    )
-    assert (
-        numbers_to_neutral("Baugatangi 705, Reykjavík") == "Baugatangi 705, Reykjavík"
-    )
-    assert (
-        numbers_to_neutral("Baugatangi 711, Reykjavík") == "Baugatangi 711, Reykjavík"
-    )
-    assert (
-        numbers_to_neutral("Baugatangi 712, Reykjavík") == "Baugatangi 712, Reykjavík"
-    )
-    assert (
-        numbers_to_neutral("Baugatangi 713, Reykjavík") == "Baugatangi 713, Reykjavík"
-    )
-    assert (
-        numbers_to_neutral("Baugatangi 714, Reykjavík") == "Baugatangi 714, Reykjavík"
-    )
-    assert (
-        numbers_to_neutral("Baugatangi 715, Reykjavík") == "Baugatangi 715, Reykjavík"
-    )
-    assert (
-        numbers_to_neutral("Baugatangi 1-4, Reykjavík")
-        == "Baugatangi eitt-fjögur, Reykjavík"
-    )
-    assert (
-        numbers_to_neutral("Baugatangi 1-17, Reykjavík")
-        == "Baugatangi eitt-17, Reykjavík"
-    )

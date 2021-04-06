@@ -123,10 +123,13 @@ console/
 fonts/
 
 # Virtual environments
-venv/
+venv*
 p3*/
 p7*/
+pypy/
 cpython*/
+venv
+
 
 # Installer logs
 pip-log.txt
@@ -151,7 +154,7 @@ $RECYCLE.BIN/
 *.msp
 
 # API keys
-resources/GoogleServerKey.txt
+resources/*Key.txt
 resources/aws_polly_keys.*.json
 resources/salescloud_key.bin
 

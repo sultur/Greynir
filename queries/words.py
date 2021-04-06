@@ -4,7 +4,7 @@
 
     Word properties query response module
 
-    Copyright (C) 2020 Miðeind ehf.
+    Copyright (C) 2021 Miðeind ehf.
 
        This program is free software: you can redistribute it and/or modify
        it under the terms of the GNU General Public License as published by
@@ -32,11 +32,14 @@
 # TODO: Handle numbers ("3" should be spelled as "þrír" etc.)
 # TODO "Hvaða orð rímar við X"
 
+from typing import Optional, Tuple
+
 import re
 import logging
 from datetime import datetime, timedelta
 
-from queries import gen_answer
+from query import Query, AnswerTuple
+from queries import gen_answer, icequote
 from reynir.bindb import BIN_Db
 
 
@@ -82,7 +85,7 @@ _CHAR_PRONUNCIATION = {
 
 _WORDTYPE_RX_NOM = "(?:orðið|nafnið|nafnorðið)"
 _WORDTYPE_RX_GEN = "(?:orðsins|nafnsins|nafnorðsins)"
-
+_WORDTYPE_RX_DAT = "(?:orðinu|nafninu|nafnorðinu)"
 
 _SPELLING_RX = (
     r"^hvernig stafsetur maður {0}?\s?(.+)$".format(_WORDTYPE_RX_NOM),
@@ -103,30 +106,31 @@ _SPELLING_RX = (
 
 
 _DECLENSION_RX = (
-    r"^hvernig beygi ég {0} (.+)$".format(_WORDTYPE_RX_NOM),
-    r"^hvernig fallbeygi ég {0} (.+)$".format(_WORDTYPE_RX_NOM),
-    r"^hvernig beygirðu {0} (.+)$".format(_WORDTYPE_RX_NOM),
-    r"^hvernig fallbeygirðu {0} (.+)$".format(_WORDTYPE_RX_NOM),
-    r"^hvernig á að beygja {0} (.+)$".format(_WORDTYPE_RX_NOM),
-    r"^hvernig á að fallbeygja {0} (.+)$".format(_WORDTYPE_RX_NOM),
-    r"^hvernig á ég að beygja {0} (.+)$".format(_WORDTYPE_RX_NOM),
-    r"^hvernig á ég að fallbeygja {0} (.+)$".format(_WORDTYPE_RX_NOM),
-    r"^hvernig á maður að beygja {0} (.+)$".format(_WORDTYPE_RX_NOM),
-    r"^hvernig á maður að fallbeygja {0} (.+)$".format(_WORDTYPE_RX_NOM),
-    r"^hvernig beygir maður {0} (.+)$".format(_WORDTYPE_RX_NOM),
-    r"^hvernig fallbeygir maður {0} (.+)$".format(_WORDTYPE_RX_NOM),
-    r"^hvernig beygist {0} (.+)$".format(_WORDTYPE_RX_NOM),
-    r"^hvernig fallbeygist {0} (.+)$".format(_WORDTYPE_RX_NOM),
-    r"^hvernig skal beygja {0} (.+)$".format(_WORDTYPE_RX_NOM),
-    r"^hvernig skal fallbeygja {0} (.+)$".format(_WORDTYPE_RX_NOM),
-    r"^hvernig er {0} (.+) beygt$".format(_WORDTYPE_RX_NOM),
-    r"^hvernig er {0} (.+) fallbeygt$".format(_WORDTYPE_RX_NOM),
-    r"^hverjar eru beygingarmyndir {0} (.+)$".format(_WORDTYPE_RX_GEN),
-    r"^hvað eru beygingarmyndir {0} (.+)$".format(_WORDTYPE_RX_GEN),
+    r"^hvernig beygi ég {0}\s?(.+)$".format(_WORDTYPE_RX_NOM),
+    r"^hvernig fallbeygi ég {0}\s?(.+)$".format(_WORDTYPE_RX_NOM),
+    r"^hvernig beygirðu {0}\s?(.+)$".format(_WORDTYPE_RX_NOM),
+    r"^hvernig fallbeygirðu {0}\s?(.+)$".format(_WORDTYPE_RX_NOM),
+    r"^hvernig á að beygja {0}\s?(.+)$".format(_WORDTYPE_RX_NOM),
+    r"^hvernig á að fallbeygja {0}\s?(.+)$".format(_WORDTYPE_RX_NOM),
+    r"^hvernig á ég að beygja {0}\s?(.+)$".format(_WORDTYPE_RX_NOM),
+    r"^hvernig á ég að fallbeygja {0}\s?(.+)$".format(_WORDTYPE_RX_NOM),
+    r"^hvernig á maður að beygja {0}\s?(.+)$".format(_WORDTYPE_RX_NOM),
+    r"^hvernig á maður að fallbeygja {0}\s?(.+)$".format(_WORDTYPE_RX_NOM),
+    r"^hvernig beygir maður {0}\s?(.+)$".format(_WORDTYPE_RX_NOM),
+    r"^hvernig fallbeygir maður {0}\s?(.+)$".format(_WORDTYPE_RX_NOM),
+    r"^hvernig beygist {0}\s?(.+)$".format(_WORDTYPE_RX_NOM),
+    r"^hvernig fallbeygist {0}\s?(.+)$".format(_WORDTYPE_RX_NOM),
+    r"^hvernig skal beygja {0}\s?(.+)$".format(_WORDTYPE_RX_NOM),
+    r"^hvernig skal fallbeygja {0}\s?(.+)$".format(_WORDTYPE_RX_NOM),
+    r"^hvernig er {0}\s?(.+) beygt$".format(_WORDTYPE_RX_NOM),
+    r"^hvernig er {0}\s?(.+) fallbeygt$".format(_WORDTYPE_RX_NOM),
+    r"^hverjar eru beygingarmyndir {0}\s?(.+)$".format(_WORDTYPE_RX_GEN),
+    r"^hvað eru beygingarmyndir {0}\s?(.+)$".format(_WORDTYPE_RX_GEN),
+    r"^fallbeyging á {0}\s?(.+)$".format(_WORDTYPE_RX_DAT),
 )
 
 
-def lookup_best_word(word):
+def lookup_best_word(word: str) -> Optional[Tuple[str, str, str, str]]:
     """ Look up word in BÍN, pick right one acc. to a criterion. """
     with BIN_Db().get_db() as db:
 
@@ -167,13 +171,15 @@ def lookup_best_word(word):
         return nom, acc, dat, gen
 
 
-_NOT_IN_BIN_MSG = "Nafnorðið '{0}' fannst ekki í Beygingarlýsingu íslensks nútímamáls."
+_NOT_IN_BIN_MSG = "Nafnorðið „{0}“ fannst ekki í Beygingarlýsingu íslensks nútímamáls."
 
 
-def declension_answer_for_word(word, query):
-    """ Look up all morphological forms of a given word,
-        construct natural language response. """
+def declension_answer_for_word(word: str, query: Query) -> AnswerTuple:
+    """Look up all morphological forms of a given word,
+    construct natural language response."""
 
+    query.set_qtype("Declension")
+    query.set_key(word)
     # Look up in BÍN
     forms = lookup_best_word(word)
 
@@ -184,10 +190,13 @@ def declension_answer_for_word(word, query):
     response = dict(answer=answ)
     # TODO: Handle plural e.g. "Hér eru"
     cases_desc = "Hér er {0}, um {1}, frá {2}, til {3}".format(*forms)
-    voice = "Orðið '{0}' beygist á eftirfarandi hátt: {1}.".format(word, cases_desc)
+    voice = "Orðið {0} beygist á eftirfarandi hátt: {1}.".format(
+        icequote(word), cases_desc
+    )
 
-    query.set_qtype("Declension")
-    query.set_key(word)
+    # Beautify by placing word in query within quotation marks
+    bq = re.sub(word + r"\??$", icequote(word) + "?", query.beautified_query)
+    query.set_beautified_query(bq)
 
     return response, answ, voice
 
@@ -196,7 +205,7 @@ def declension_answer_for_word(word, query):
 _LETTER_INTERVAL = 0.3  # Seconds
 
 
-def spelling_answer_for_word(word, query):
+def spelling_answer_for_word(word: str, query: Query) -> AnswerTuple:
     """ Spell out a word provided in a query. """
 
     # Generate list of characters in word
@@ -209,17 +218,21 @@ def spelling_answer_for_word(word, query):
     # Piece together SSML for speech synthesis
     v = [_CHAR_PRONUNCIATION.get(c, c) for c in chars]
     jfmt = '<break time="{0}s"/>'.format(_LETTER_INTERVAL)
-    voice = "Orðið '{0}' er stafað á eftirfarandi hátt: {1} {2}".format(
-        word, jfmt, jfmt.join(v)
+    voice = "Orðið {0} er stafað á eftirfarandi hátt: {1} {2}".format(
+        icequote(word), jfmt, jfmt.join(v)
     )
 
     query.set_qtype("Spelling")
     query.set_key(word)
 
+    # Beautify by placing word in query within quotation marks
+    bq = re.sub(word + r"\??$", icequote(word) + "?", query.beautified_query)
+    query.set_beautified_query(bq)
+
     return response, answ, voice
 
 
-def handle_plain_text(q):
+def handle_plain_text(q: Query) -> bool:
     """ Handle a plain text query, contained in the q parameter. """
     ql = q.query_lower.rstrip("?")
 
@@ -249,6 +262,7 @@ def handle_plain_text(q):
     matching_word = matches.group(1)
 
     # Generate answer
+    answ: Optional[AnswerTuple]
     try:
         answ = handler(matching_word, q)
     except Exception as e:
@@ -256,7 +270,7 @@ def handle_plain_text(q):
         q.set_error("E_EXCEPTION: {0}".format(e))
         answ = None
 
-    if answ:
+    if answ is not None:
         q.set_answer(*answ)
         q.set_expires(datetime.utcnow() + timedelta(hours=24))
         # Beautify query by placing word being asked about within Icelandic quotation marks

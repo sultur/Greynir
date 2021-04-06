@@ -4,7 +4,7 @@
 
     Counting query response module
 
-    Copyright (C) 2020 Miðeind ehf.
+    Copyright (C) 2021 Miðeind ehf.
 
        This program is free software: you can redistribute it and/or modify
        it under the terms of the GNU General Public License as published by
@@ -28,6 +28,7 @@ import random
 from datetime import datetime, timedelta
 
 from queries import parse_num, gen_answer
+from query import Query
 
 
 _COUNTING_QTYPE = "Counting"
@@ -36,9 +37,9 @@ _COUNTING_QTYPE = "Counting"
 TOPIC_LEMMAS = ["telja"]
 
 
-def help_text(lemma):
-    """ Help text to return when query.py is unable to parse a query but
-        one of the above lemmas is found in it """
+def help_text(lemma: str) -> str:
+    """Help text to return when query.py is unable to parse a query but
+    one of the above lemmas is found in it"""
     return "Ég skil þig ef þú segir til dæmis: {0}.".format(
         random.choice(("Teldu upp að tíu", "Teldu niður frá tuttugu"))
     )
@@ -46,6 +47,9 @@ def help_text(lemma):
 
 # This module wants to handle parse trees for queries
 HANDLE_TREE = True
+
+# The grammar nonterminals this module wants to handle
+QUERY_NONTERMINALS = {"QCounting"}
 
 # The context-free grammar for the queries recognized by this plug-in module
 GRAMMAR = """
@@ -124,7 +128,7 @@ def QCountingSpeed(node, params, result):
     result.delay = _SPEED2DELAY.get(node.contained_text())
 
 
-def _gen_count(q, result):
+def _gen_count(q: Query, result):
     num_range = None
     if result.qkey == "CountUp":
         num_range = list(range(1, result.first_num + 1))
@@ -153,7 +157,7 @@ def _gen_count(q, result):
 
 def sentence(state, result):
     """ Called when sentence processing is complete """
-    q = state["query"]
+    q: Query = state["query"]
     if "qtype" in result and "qkey" in result:
         # Successfully matched a query type
         q.set_qtype(result.qtype)

@@ -1,7 +1,7 @@
 """
     Greynir: Natural language processing for Icelandic
 
-    Copyright (C) 2020 Miðeind ehf.
+    Copyright (C) 2021 Miðeind ehf.
 
        This program is free software: you can redistribute it and/or modify
        it under the terms of the GNU General Public License as published by
@@ -21,18 +21,36 @@
 
 """
 
-import abc
-from io import BytesIO
+from typing import Union, Dict, Type, Mapping
+
 import re
+import abc
+from io import BytesIO, StringIO
 from zipfile import ZipFile
-import html2text
-from striprtf.striprtf import rtf_to_text
+
+from html2text import HTML2Text
+
+from striprtf.striprtf import rtf_to_text  # type: ignore
+
+from odf import teletype
+from odf import text as odf_text
+from odf.opendocument import load as load_odf
+
+from pdfminer.converter import TextConverter
+from pdfminer.layout import LAParams
+from pdfminer.pdfdocument import PDFDocument as PDFMinerDocument
+from pdfminer.pdfinterp import PDFResourceManager, PDFPageInterpreter
+from pdfminer.pdfpage import PDFPage
+from pdfminer.pdfparser import PDFParser
 
 # Use defusedxml module to prevent parsing of malicious XML
-from defusedxml import ElementTree
+from defusedxml import ElementTree  # type: ignore
 
 
 DEFAULT_TEXT_ENCODING = "UTF-8"
+
+
+DocumentType = Type["Document"]
 
 
 class MalformedDocumentError(Exception):
@@ -42,7 +60,7 @@ class MalformedDocumentError(Exception):
 class Document(abc.ABC):
     """ Abstract base class for documents. """
 
-    def __init__(self, path_or_bytes):
+    def __init__(self, path_or_bytes: Union[str, bytes]):
         """ Accepts either a file path or bytes object """
         if isinstance(path_or_bytes, str):
             # It's a file path
@@ -52,12 +70,20 @@ class Document(abc.ABC):
             # It's a byte stream
             self.data = path_or_bytes
 
-    @abc.abstractmethod
-    def extract_text(self):
-        """ All subclasses must implement this method """
-        pass
+    @staticmethod
+    def for_mimetype(mime_type: str) -> DocumentType:
+        return doc_class_for_mime_type(mime_type)
 
-    def write_to_file(self, path):
+    @staticmethod
+    def for_suffix(suffix: str) -> DocumentType:
+        return doc_class_for_suffix(suffix)
+
+    @abc.abstractmethod
+    def extract_text(self) -> str:
+        """ All subclasses must implement this method """
+        raise NotImplementedError
+
+    def write_to_file(self, path: str):
         with open(path, "wb") as f:
             f.write(self.data)
 
@@ -65,7 +91,7 @@ class Document(abc.ABC):
 class PlainTextDocument(Document):
     """ Plain text document """
 
-    def extract_text(self):
+    def extract_text(self) -> str:
         return self.data.decode(DEFAULT_TEXT_ENCODING)
 
 
@@ -73,37 +99,37 @@ class HTMLDocument(Document):
     """ HTML document """
 
     @staticmethod
-    def _remove_header_prefixes(text):
-        """ Removes '#' in all lines starting with '#'. Annoyingly,
-            html2text adds markdown-style headers for <h*> tags. """
+    def _remove_header_prefixes(text: str) -> str:
+        """Removes '#' in all lines starting with '#'. Annoyingly,
+        html2text adds markdown-style headers for <h*> tags."""
         lines = text.split("\n")
         for i, line in enumerate(lines):
             if line.startswith("#"):
                 lines[i] = re.sub(r"[#]+\s", "", line)
         return "\n".join(lines)
 
-    def extract_text(self):
+    def extract_text(self) -> str:
         html = self.data.decode(DEFAULT_TEXT_ENCODING)
 
-        h = html2text.HTML2Text()
+        h = HTML2Text()
         # See https://github.com/Alir3z4/html2text/blob/master/html2text/cli.py
         h.ignore_links = True
         h.ignore_emphasis = True
         h.ignore_images = True
         h.unicode_snob = True
         h.ignore_tables = True
-        h.decode_errors = "ignore"
+        h.decode_errors = "ignore"  # type: ignore
         h.body_width = 0
 
-        text = h.handle(html)
+        txt = h.handle(html)
 
-        return self._remove_header_prefixes(text)
+        return self._remove_header_prefixes(txt)
 
 
 class RTFDocument(Document):
     """ Rich text document """
 
-    def extract_text(self):
+    def extract_text(self) -> str:
         txt = self.data.decode(DEFAULT_TEXT_ENCODING)
 
         # Hack to handle Apple's extensions to the RTF format
@@ -115,8 +141,22 @@ class RTFDocument(Document):
 class PDFDocument(Document):
     """ Adobe PDF document """
 
-    def extract_text(self):
-        raise NotImplementedError
+    def extract_text(self) -> str:
+        output_string = StringIO()
+
+        parser = PDFParser(BytesIO(self.data))
+        doc = PDFMinerDocument(parser)
+        rsrcmgr = PDFResourceManager()
+        device = TextConverter(rsrcmgr, output_string, laparams=LAParams())
+        interpreter = PDFPageInterpreter(rsrcmgr, device)
+
+        for page in PDFPage.create_pages(doc):
+            interpreter.process_page(page)
+
+        # Postprocessing
+        txt = output_string.getvalue()
+        txt = txt.replace("\n", " ")
+        return txt
 
 
 class DocxDocument(Document):
@@ -128,7 +168,7 @@ class DocxDocument(Document):
     TEXT_TAG = WORD_NAMESPACE + "t"
     BREAK_TAG = WORD_NAMESPACE + "br"
 
-    def extract_text(self):
+    def extract_text(self) -> str:
 
         zipfile = ZipFile(BytesIO(self.data), "r")
 
@@ -159,15 +199,49 @@ class DocxDocument(Document):
         return "\n\n".join(paragraphs)
 
 
+class ODTDocument(Document):
+    """ OpenDocument format. """
+
+    def extract_text(self) -> str:
+        textdoc = load_odf(BytesIO(self.data))
+        paragraphs = textdoc.getElementsByType(odf_text.P)  # Find all paragraphs
+        ptexts = [teletype.extractText(p) for p in paragraphs]
+        return "\n\n".join(ptexts)
+
+
 # Map file mime type to document class
-MIMETYPE_TO_DOC_CLASS = {
+MIMETYPE_TO_DOC_CLASS: Dict[str, DocumentType] = {
     "text/plain": PlainTextDocument,
     "text/html": HTMLDocument,
     "text/rtf": RTFDocument,
+    "application/pdf": PDFDocument,
+    "application/x-pdf": PDFDocument,
     "application/rtf": RTFDocument,
-    # "application/pdf": PDFDocument,
-    # "application/x-pdf": PDFDocument,
-    "application/vnd.openxmlformats-officedocument.wordprocessingml.document": DocxDocument,  # Yes, really
+    "application/vnd.oasis.opendocument.text": ODTDocument,
+    # Yes, really!
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document": DocxDocument,
 }
 
 SUPPORTED_DOC_MIMETYPES = frozenset(MIMETYPE_TO_DOC_CLASS.keys())
+
+
+def doc_class_for_mime_type(mime_type: str) -> Type[Document]:
+    assert mime_type in SUPPORTED_DOC_MIMETYPES
+    return MIMETYPE_TO_DOC_CLASS[mime_type]
+
+
+SUFFIX_TO_DOC_CLASS: Mapping[str, DocumentType] = {
+    "txt": PlainTextDocument,
+    "html": HTMLDocument,
+    "rtf": RTFDocument,
+    "pdf": PDFDocument,
+    "odt": ODTDocument,
+    "docx": DocxDocument,
+}
+
+SUPPORTED_DOC_SUFFIXES = frozenset(SUFFIX_TO_DOC_CLASS.keys())
+
+
+def doc_class_for_suffix(suffix: str) -> Type[Document]:
+    assert suffix in SUPPORTED_DOC_SUFFIXES
+    return SUFFIX_TO_DOC_CLASS[suffix]

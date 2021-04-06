@@ -4,7 +4,7 @@
 
     Randomness query response module
 
-    Copyright (C) 2020 Miðeind ehf.
+    Copyright (C) 2021 Miðeind ehf.
 
        This program is free software: you can redistribute it and/or modify
        it under the terms of the GNU General Public License as published by
@@ -23,12 +23,12 @@
 
 """
 
-# TODO: "kastaðu upp á teningnum"
-# TODO: "skjaldarmerki eða fiskur"
+# TODO: Suport commands of the form "Kastaðu tveir dé 6", D&D style die rolling lingo
 
 import logging
 import random
 
+from query import Query
 from queries import gen_answer
 from queries.arithmetic import add_num, terminal_num
 
@@ -38,15 +38,16 @@ _RANDOM_QTYPE = "Random"
 TOPIC_LEMMAS = ["teningur", "skjaldarmerki", "handahóf"]
 
 
-def help_text(lemma):
-    """ Help text to return when query.py is unable to parse a query but
-        one of the above lemmas is found in it """
+def help_text(lemma: str) -> str:
+    """Help text to return when query.py is unable to parse a query but
+    one of the above lemmas is found in it"""
     return "Ég skil þig ef þú segir til dæmis: {0}.".format(
         random.choice(
             (
                 "Kastaðu teningi",
                 "Kastaðu tíu hliða teningi",
                 "Fiskur eða skjaldarmerki",
+                "Kastaðu teningi",
                 "Kastaðu peningi",
                 "Veldu tölu á milli sjö og þrettán",
             )
@@ -56,6 +57,9 @@ def help_text(lemma):
 
 # This module wants to handle parse trees for queries
 HANDLE_TREE = True
+
+# The grammar nonterminals this module wants to handle
+QUERY_NONTERMINALS = {"QRandom"}
 
 # The context-free grammar for the queries recognized by this plug-in module
 GRAMMAR = """
@@ -78,6 +82,8 @@ QRandomDiceRoll →
     | "kasta" QRandomDiceSides? QRandomDie
     | "geturðu" "kastað" QRandomDiceSides? QRandomDie QRandomForMe?
     | "geturðu" "kastað" QRandomForMe? QRandomDiceSides? QRandomDie
+    | "kastaðu" "upp" "á" "teningnum" QRandomForMe?
+    | "kastaðu" "upp" "á" "teningi" QRandomForMe?
 
 QRandomForMe →
     "fyrir" "mig"
@@ -142,7 +148,7 @@ def QRandNumber(node, params, result):
         add_num(result._nominative, result)
 
 
-def gen_random_answer(q, result):
+def gen_random_answer(q: Query, result):
     (num1, num2) = (1, 6)  # Default
 
     if "numbers" in result:
@@ -168,14 +174,14 @@ def gen_random_answer(q, result):
     return response, answer, voice_answer
 
 
-def heads_or_tails(q, result):
+def heads_or_tails(q: Query, result):
     q.set_key("HeadsOrTails")
     return gen_answer(random.choice(("Skjaldarmerki", "Fiskur")))
 
 
 def sentence(state, result):
     """ Called when sentence processing is complete """
-    q = state["query"]
+    q: Query = state["query"]
     if "qtype" not in result:
         q.set_error("E_QUERY_NOT_UNDERSTOOD")
         return

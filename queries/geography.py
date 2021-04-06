@@ -4,7 +4,7 @@
 
     Geography query response module
 
-    Copyright (C) 2020 Miðeind ehf.
+    Copyright (C) 2021 Miðeind ehf.
 
        This program is free software: you can redistribute it and/or modify
        it under the terms of the GNU General Public License as published by
@@ -25,14 +25,16 @@
 
 # TODO: "Hvað búa margir í/á [BORG/LAND]?" etc. Wiki api?
 # TODO: Beautify queries by fixing capitalization of countries, placenames
+# TODO: Beautify query: "Hver er höfuðborg Norður-Kóreu"
 
 import logging
 import random
 import re
 from datetime import datetime, timedelta
 
-from cityloc import capital_for_cc
+from cityloc import capital_for_cc  # type: ignore
 
+from query import Query
 from queries import country_desc, nom2dat, cap_first
 from reynir import NounPhrase
 from geo import (
@@ -47,12 +49,12 @@ from geo import (
 
 _GEO_QTYPE = "Geography"
 
-TOPIC_LEMMAS = ["höfuðborg", "land", "heimsálfa", "borg", "landafræði"]
+TOPIC_LEMMAS = ["höfuðborg", "heimsálfa", "borg", "landafræði"]
 
 
-def help_text(lemma):
-    """ Help text to return when query.py is unable to parse a query but
-        one of the above lemmas is found in it """
+def help_text(lemma: str) -> str:
+    """Help text to return when query.py is unable to parse a query but
+    one of the above lemmas is found in it"""
     return "Ég get svarað ef þú spyrð til dæmis: {0}?".format(
         random.choice(
             (
@@ -60,7 +62,7 @@ def help_text(lemma):
                 "Í hvaða landi er Minsk",
                 "Í hvaða heimsálfu er Kambódía",
                 "Hvar er Kaupmannahöfn",
-                "Hvar er í heiminum er Máritanía",
+                "Hvar í heiminum er Máritanía",
             )
         )
     )
@@ -68,6 +70,9 @@ def help_text(lemma):
 
 # This module wants to handle parse trees for queries
 HANDLE_TREE = True
+
+# The grammar nonterminals this module wants to handle
+QUERY_NONTERMINALS = {"QGeo"}
 
 # The context-free grammar for the queries recognized by this plug-in module
 GRAMMAR = """
@@ -114,30 +119,51 @@ QGeoWhatIs →
 QGeoWhereIs →
     "hvar" "er"
     | "hvar" "eru"
-    | "hvað" "er"
     | "hvar" "í" "heiminum" "er"
     | "hvar" "í" "heiminum" "eru"
     | "hvar" "á" "jörðinni" "er"
     | "hvar" "á" "jörðinni" "eru"
     | "hvar" "á" "plánetunni" "er"
     | "hvar" "á" "plánetunni" "eru"
+    | "hvar" "á" "hnettinum" "er"
+    | "hvar" "á" "hnettinum" "eru"
 
 QGeoPreposition →
     "í" | "á"
 
 QGeoSubject/fall →
     Nl/fall
+
+QGeoSubject_nf →
     # Hardcoded special case, otherwise identified as adj. "kostaríkur" :)
-    | "kostaríka" | "kostaríku"
+    "kostaríka"
     # The grammar seems to have a hard time with these
-    | "norður" "kórea" | "norður" "kóreu"
-    | "nýja" "sjáland" | "nýja" "sjálands" | "nýja" "sjálandi"
-    | "norður" "makedónía" | "norður" "makedóníu"
-    | "hvíta" "rússland" | "hvíta" "rússlands" | "hvíta-rússland"
+    | "norður" "kórea"
+    | "nýja" "sjáland"
+    | "norður" "makedónía"
+    | "hvíta" "rússland" | "hvíta-rússland"
     | "sameinuðu" "arabísku" "furstadæmin"
+    | "seychelles" "eyjar"
+
+QGeoSubject_þgf →
+    # Hardcoded special case, otherwise identified as adj. "kostaríkur" :)
+    "kostaríku"
+    | "norður" "kóreu"
+    | "nýja" "sjálandi"
+    | "norður" "makedóníu"
+    | "hvíta" "rússlandi" | "hvíta-rússlandi"
     | "sameinuðu" "arabísku" "furstadæmunum"
+    | "seychelles" "eyjum"
+
+QGeoSubject_ef →
+    # Hardcoded special case, otherwise identified as adj. "kostaríkur" :)
+    "kostaríku"
+    | "norður" "kóreu"
+    | "nýja" "sjálands"
+    | "norður" "makedóníu"
+    | "hvíta" "rússlands" | "hvíta-rússlands"
     | "sameinuðu" "arabísku" "furstadæmanna"
-    | "seychelles" "eyjar" | "seychelles" "eyja" | "seychelles" "eyjum"
+    | "seychelles" "eyja"
 
 $score(+10) QGeoSubject/fall
 $score(-100) QGeoLocationDescQuery
@@ -173,12 +199,13 @@ _PLACENAME_FIXES = [
     (r"norður kóre", "Norður-Kóre"),
     (r"norður kaledón", "Norður-Kaledón"),
     (r"^seychelles.+$", "Seychelles"),
+    (r"^taiwans$", "Taiwan"),
 ]
 
 
-def _preprocess(name):
-    """ Change country/city names mangled by speech recognition to
-        the canonical spelling so lookup works. """
+def _preprocess(name: str) -> str:
+    """Change country/city names mangled by speech recognition to
+    the canonical spelling so lookup works."""
     fixed = name
     for k, v in _PLACENAME_FIXES:
         fixed = re.sub(k, v, fixed, flags=re.IGNORECASE)
@@ -191,7 +218,7 @@ def QGeoSubject(node, params, result):
     result.subject = nom
 
 
-def _capital_query(country, q):
+def _capital_query(country: str, q: Query):
     """ Generate answer to question concerning a country capital. """
 
     # Get country code
@@ -221,9 +248,9 @@ def _capital_query(country, q):
     return True
 
 
-def _which_country_query(subject, q):
-    """ Generate answer to question concerning the country in which
-        a given placename is located. """
+def _which_country_query(subject: str, q: Query):
+    """Generate answer to question concerning the country in which
+    a given placename is located."""
     info = location_info(subject, "placename")
     if not info:
         return False
@@ -242,43 +269,49 @@ def _which_country_query(subject, q):
 
     q.set_answer(response, answer, voice)
     q.set_key(subject)
-    q.set_context(dict(subject=country_name_for_isocode(cc)))
+    cname = country_name_for_isocode(cc)
+    if cname is not None:
+        q.set_context(dict(subject=cname))
 
     return True
 
 
-def _which_continent_query(subject, q):
-    """ Generate answer to question concerning the continent on which
-        a given country name or placename is located. """
+def _which_continent_query(subject: str, q: Query):
+    """Generate answer to question concerning the continent on which
+    a given country name or placename is located."""
 
     # Get country code
     cc = isocode_for_country_name(subject)
-    is_city = False
+    is_placename = False
     if not cc:
         # OK, the subject is not a country
-        # Let's see if it's a city
+        # Let's see if it's a placename
         info = location_info(subject, "placename")
         if not info:
             return False  # We don't know where it is
         cc = info.get("country")
-        is_city = True
+        is_placename = True
 
     if not cc:
         return False
 
     contcode = continent_for_country(cc)
-    continent = ISO_TO_CONTINENT[contcode]
-    continent_dat = nom2dat(continent)
+    if contcode is None:
+        continent = "óþekkt heimsálfa"
+        continent_dat = "óþekktri heimsálfu"
+    else:
+        continent = ISO_TO_CONTINENT[contcode]
+        continent_dat = nom2dat(continent)
 
     # Format answer
     answer = continent_dat
     response = dict(answer=answer)
-    if is_city:
+    if is_placename:
         cd = country_desc(cc)
-        voice = "Borgin {0} er {1}, sem er land í {2}".format(
+        voice = "Staðurinn {0} er {1}, sem er land í {2}".format(
             subject, cd, continent_dat
         )
-        answer = "{0}, {1}".format(cd, continent_dat)
+        answer = "{0}, {1}".format(cap_first(cd), continent_dat)
     else:
         voice = "Landið {0} er í {1}".format(subject, continent_dat)
 
@@ -289,9 +322,9 @@ def _which_continent_query(subject, q):
     return True
 
 
-def _loc_desc_query(subject, q):
-    """ Generate answer to a question about where a
-        country or placename is located. """
+def _loc_desc_query(subject: str, q: Query):
+    """Generate answer to a question about where a
+    country or placename is located."""
 
     # Get country code
     cc = isocode_for_country_name(subject)
@@ -299,8 +332,13 @@ def _loc_desc_query(subject, q):
         # Not a country, try placename lookup
         return _which_country_query(subject, q)
 
-    continent = ISO_TO_CONTINENT[continent_for_country(cc)]
-    continent_dat = nom2dat(continent)
+    contcode = continent_for_country(cc)
+    if contcode is None:
+        continent = "óþekkt heimsálfa"
+        continent_dat = "óþekktri heimsálfu"
+    else:
+        continent = ISO_TO_CONTINENT[contcode]
+        continent_dat = nom2dat(continent)
 
     answer = "{0} er land í {1}.".format(subject, continent_dat)
     voice = answer
@@ -324,7 +362,7 @@ _HANDLERS = {
 
 def sentence(state, result):
     """ Called when sentence processing is complete """
-    q = state["query"]
+    q: Query = state["query"]
 
     handled = False
 

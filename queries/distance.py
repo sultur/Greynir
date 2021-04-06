@@ -4,7 +4,7 @@
 
     Distance query response module
 
-    Copyright (C) 2020 Miðeind ehf.
+    Copyright (C) 2021 Miðeind ehf.
 
        This program is free software: you can redistribute it and/or modify
        it under the terms of the GNU General Public License as published by
@@ -28,11 +28,16 @@
 # TODO: "Hvað er langt til tunglsins"? "Hvað er langt til Mars?"
 # TODO: Identify when user is present at the location, respond "Þú ert í/á X"
 # TODO: "Hvað er langur/margra kílómetra göngutúr í/á X?"
+# TODO: Fix issue where answer complains about lack of location despite query
+#       being handlable by another module, error checking should take place earlier
+
+from typing import Tuple, cast
 
 import re
 import logging
 
 from reynir import NounPhrase
+from query import Query
 from queries import (
     gen_answer,
     cap_first,
@@ -40,6 +45,7 @@ from queries import (
     distance_desc,
     query_geocode_api_addr,
     query_traveltime_api,
+    numbers_to_neutral,
 )
 from geo import distance, capitalize_placename
 
@@ -47,41 +53,54 @@ from geo import distance, capitalize_placename
 _DISTANCE_QTYPE = "Distance"
 
 
-# TODO: This may grab queries of the form "Hvað er langt í jólin"!
 _QDISTANCE_REGEXES = (
     r"^hvað er ég langt frá (.+)$",
+    r"^hvað erum við langt frá (.+)$",
     r"^hvað er langt frá (.+)$",  # Speech recognition often misses "ég" in this context
     r"^hvað er ég langt í burtu frá (.+)$",
+    r"^hvað erum við langt í burtu frá (.+)$",
     r"^hversu langt er ég frá (.+)$",
+    r"^hversu langt erum við frá (.+)$",
     r"^hversu langt í burtu er (.+)$",
     r"^hve langt í burtu er (.+)$",
     r"^hversu langt frá (.+) er ég$",
     r"^hve langt frá (.+) er ég$",
     r"^hve langt er ég frá (.+)$",
-    r"^hvað er langt\s?(?:héðan)?\s?(?:austur|vestur|norður|suður)? á (.+)$",
+    r"^hversu langt frá (.+) erum við$",
+    r"^hve langt frá (.+) erum við$",
+    r"^hve langt erum við frá (.+)$",
+    r"^hvað er langt\s?(?:héðan)?\s?(?:austur|vestur|norður|suður|upp|niður)? á (.+)$",
     r"^hvað er langt\s?(?:héðan)? upp á (.+)$",
     r"^hvað er langt\s?(?:héðan)? niður á (.+)$",
-    r"^hvað er langt\s?(?:héðan)?\s?(?:austur|vestur|norður|suður)? í ([^0-9.].+)$",
+    r"^hvað er langt\s?(?:héðan)?\s?(?:austur|vestur|norður|suður|upp|niður)? í ([^0-9.].+)$",
     r"^hvað er langt\s?(?:héðan)? upp í (.+)$",
     r"^hvað er langt\s?(?:héðan)? til (.+)$",
     r"^hvað er langt\s?(?:héðan)? út á ([^0-9.].+)$",
-    r"^hversu langt er\s?(?:austur|vestur|norður|suður)? til (.+)$",
+    r"^hversu langt er\s?(?:austur|vestur|norður|suður|upp|niður)? til (.+)$",
     r"^hversu langt er út á (.+)$",
     r"^hversu marga kílómetra er ég frá (.+)$",
     r"^hversu marga metra er ég frá (.+)$",
+    r"^hversu marga kílómetra erum við frá (.+)$",
+    r"^hversu marga metra erum við frá (.+)$",
     r"^hvað eru margir kílómetrar til (.+)$",
     r"^hvað eru margir metrar til (.+)$",
+    r"^hvað er (.+) langt í burtu frá mér$",
+    r"^hvað er (.+) langt í burtu frá okkur$",
     r"^hvað er (.+) langt í burtu$",
+    # Home
+    # r"^hvað er langt\s?(?:héðan)? (heim)\s?(?:héðan)?$",
+    # r"^hvað er langt\s?(?:héðan)? (heim til mín)\s?(?:héðan)?$",
 )
 
 # Travel time questions
 _TT_PREFIXES = (
     "hvað er ég lengi að",
+    "hvað er lengi að",
     "hvað er maður lengi að",
     "hvað erum við lengi að",
     "hversu lengi er ég að",
     "hversu lengi er maður að",
-    "hversu lengi erum að",
+    "hversu lengi erum við að",
     "hversu lengi að",
     "hve lengi að",
     "hve lengi er ég að",
@@ -90,20 +109,26 @@ _TT_PREFIXES = (
     "hvað tekur langan tíma að",
     "hvað tekur mig langan tíma að",
     "hvað tekur mann langan tíma að",
+    "hvað tekur okkur langan tíma að",
     "hvað tekur það langan tíma að",
     "hvað tekur það mig langan tíma að",
+    "hvað tekur það okkur langan tíma að",
     "hvað tekur það mann langan tíma að",
     "hversu langan tíma tekur að",
     "hversu langan tíma tekur það að",
     "hversu langan tíma tekur það mig að",
+    "hversu langan tíma tekur það okkur að",
     "hvað væri ég lengi að",
+    "hvað værum við lengi að",
     "hvað væri maður lengi að",
     "hvað tæki það langan tíma að",
     "hvað tæki mann langan tíma að",
     "hvað tæki það mann langan tíma að",
     "hversu lengi væri ég að",
+    "hversu lengi værum við að",
     "hversu lengi væri maður að",
     "hve lengi væri ég að",
+    "hve lengi værum við að",
     "hve lengi væri maður að",
     "hversu langan tíma tæki að",
     "hversu langan tíma tæki það að",
@@ -119,11 +144,12 @@ _TT_MODES = {
     "rölta": "walking",
     "tölta": "walking",
     "skunda": "walking",
-    "hjóla": "cycling",
-    "fara á hjóli": "cycling",
-    "fara á reiðhjóli": "cycling",
-    "ferðast á hjóli": "cycling",
-    "ferðast á reiðhjóli": "cycling",
+    # Distance matrix API doesn't support bike routes for Iceland
+    # "hjóla": "bicycling",
+    # "fara á hjóli": "bicycling",
+    # "fara á reiðhjóli": "bicycling",
+    # "ferðast á hjóli": "bicycling",
+    # "ferðast á reiðhjóli": "bicycling",
     "keyra": "driving",
     "keyra á bíl": "driving",
     "aka": "driving",
@@ -133,10 +159,11 @@ _TT_MODES = {
     "á bíl": "driving",
 }
 
-_PREPS = ("á", "í", "til")
+_PREPS = ("á", "í", "til", "að")
 _TT_PREP_PREFIX = ("út", "upp", "niður", "vestur", "norður", "austur", "suður")
 _TT_PREPS = []
 
+# Construct complex regexes for travel time queries
 for p in _PREPS:
     _TT_PREPS.append(p)
     for pfx in _TT_PREP_PREFIX:
@@ -152,35 +179,42 @@ _QTRAVELTIME_REGEXES = (
 )
 
 
-def _addr2nom(address):
+_HOME_LOC = frozenset(
+    (
+        "heim",
+        "heim til mín",
+        "heimili mitt",
+        "heimili mínu",
+        "heimahús mitt",
+        "heimahúsi mínu",
+        # "heimilisfang",
+        # "heimilisfangi",
+        "heimilisfang mitt",
+        "heimilisfangi mínu",
+    )
+)
+
+
+def _addr2nom(address: str) -> str:
     """ Convert location name to nominative form. """
     if address is None or address == "":
         return address
     try:
-        nom = NounPhrase(cap_first(address)).nominative
+        nom = NounPhrase(cap_first(address)).nominative or address
     except Exception:
         nom = address
     return nom
 
 
-def dist_answer_for_loc(matches, query):
-    """ Generate response to distance query, e.g.
-        "Hvað er ég langt frá X?" """
+def dist_answer_for_loc(matches, query: Query):
+    """Generate response to distance query, e.g.
+    "Hvað er ég langt frá X?" """
     locname = matches.group(1)
     loc_nf = _addr2nom(locname) or locname
-    res = query_geocode_api_addr(loc_nf)
 
-    # Verify sanity of API response
-    if (
-        not res
-        or "status" not in res
-        or res["status"] != "OK"
-        or not res.get("results")
-    ):
-        return None
-
-    # Try to avoid answering bus queries here
+    # Try to avoid answering certain queries here
     loc_lower = locname.lower()
+    # TODO: Solve this by configuring qmodule priority
     if any(
         s in loc_lower
         for s in (
@@ -191,17 +225,50 @@ def dist_answer_for_loc(matches, query):
             "stoppustöð",
             "stræto",
             "strædo",
+            "jólin",
+            "jól",
+            "páska",
         )
     ):
         return None
 
-    # Extract location coordinates from API result
-    topres = res["results"][0]
-    coords = topres["geometry"]["location"]
-    loc = (coords["lat"], coords["lng"])
+    # Check if user is asking about distance from home address
+    is_home = False
+    loc: Tuple[float, float]
+    if loc_lower in _HOME_LOC:
+        ad = query.client_data("address")
+        if not ad:
+            return gen_answer(
+                "Ég veit ekki hvar þú átt heima, en þú getur sagt mér það."
+            )
+        elif "lat" not in ad or "lon" not in ad:
+            return gen_answer("Ég veit ekki hvar heimili þitt er.")
+        else:
+            is_home = True
+            loc = (cast(float, ad["lat"]), cast(float, ad["lon"]))
+            loc_nf = "{0} {1}".format(ad["street"], ad["number"])
+    else:
+        # Talk to geocode API
+        res = query_geocode_api_addr(loc_nf)
+
+        # Verify sanity of API response
+        if (
+            not res
+            or "status" not in res
+            or res["status"] != "OK"
+            or not res.get("results")
+        ):
+            return None
+
+        # Extract location coordinates from result
+        coords = res["results"][0]["geometry"]["location"]
+        loc = (coords["lat"], coords["lng"])
 
     # Calculate distance, round it intelligently and format num string
-    km_dist = distance(query.location, loc)
+    if query.location is None:
+        km_dist = 0.0
+    else:
+        km_dist = distance(query.location, loc)
 
     # Generate answer
     answer = distance_desc(km_dist, abbr=True)
@@ -209,12 +276,12 @@ def dist_answer_for_loc(matches, query):
 
     loc_nf = capitalize_placename(loc_nf)
     dist = distance_desc(km_dist, case="þf")
-    voice = "{0} er {1} í burtu".format(loc_nf, dist)
+    voice = "{0} er {1} í burtu".format(numbers_to_neutral(loc_nf), dist)
 
     query.set_key(loc_nf)
 
     # Beautify by capitalizing remote loc name
-    uc = capitalize_placename(locname)
+    uc = locname if is_home else capitalize_placename(locname)
     bq = query.beautified_query.replace(locname, uc)
 
     # Hack to fix the fact that the voice recognition often misses "ég"
@@ -228,16 +295,19 @@ def dist_answer_for_loc(matches, query):
     return response, answer, voice
 
 
-def traveltime_answer_for_loc(matches, query):
-    """ Generate answer to travel time query e.g.
-        "Hvað er ég lengi að ganga/hjóla/keyra í X?" """
+def traveltime_answer_for_loc(matches, query: Query):
+    """Generate answer to travel time query e.g.
+    "Hvað er ég lengi að ganga/keyra í/til X?" """
     action_desc, tmode, locname = matches.group(2, 3, 5)
 
     loc_nf = _addr2nom(locname)
     mode = _TT_MODES.get(tmode, "walking")
 
     # Query API
-    res = query_traveltime_api(query.location, loc_nf, mode=mode)
+    if query.location is None:
+        res = None
+    else:
+        res = query_traveltime_api(query.location, loc_nf, mode=mode)
 
     # Verify sanity of API response
     if (
@@ -254,7 +324,7 @@ def traveltime_answer_for_loc(matches, query):
     if elm["status"] != "OK":
         return None
 
-    # dur_desc = elm["duration"]["text"]
+    # dur_desc = elm["duration"]["text"]  # API duration description
     dur_sec = int(elm["duration"]["value"])
     dur_desc = time_period_desc(dur_sec, case="þf")
     dist_desc = elm["distance"]["text"]
@@ -268,15 +338,25 @@ def traveltime_answer_for_loc(matches, query):
     query.set_key(capitalize_placename(loc_nf))
 
     # Beautify by capitalizing remote loc name
-    uc = capitalize_placename(locname)
-    bq = query.beautified_query.replace(locname, uc)
+    bq = query.beautified_query.replace(locname, capitalize_placename(locname))
+
+    # Hack to fix common mistake in speech recognition
+    prefix_fix = "Hvað er lengi "
+    if bq.startswith(prefix_fix):
+        bq = bq.replace(prefix_fix, "Hvað er ég lengi ")
     query.set_beautified_query(bq)
+
     query.set_context(dict(subject=loc_nf))
 
     return response, answer, voice
 
 
-def handle_plain_text(q):
+_UNKNOWN_LOC_RESP = (
+    "Ég veit ekki hvar þú ert, og get því ekki reiknað út vegalengdir."
+)
+
+
+def handle_plain_text(q: Query) -> bool:
     """ Handle a plain text query, contained in the q parameter. """
     ql = q.query_lower.rstrip("?")
 
@@ -307,7 +387,7 @@ def handle_plain_text(q):
         if q.location:
             answ = handler(matches, q)
         else:
-            answ = gen_answer("Ég veit ekki hvar þú ert.")
+            answ = gen_answer(_UNKNOWN_LOC_RESP)
     except Exception as e:
         logging.warning("Exception gen. answer from geocode API: {0}".format(e))
         q.set_error("E_EXCEPTION: {0}".format(e))

@@ -4,7 +4,7 @@
 
    Greynir front page script
 
-    Copyright (C) 2018 Miðeind ehf.
+    Copyright (C) 2021 Miðeind ehf.
 
        This program is free software: you can redistribute it and/or modify
        it under the terms of the GNU General Public License as published by
@@ -214,7 +214,7 @@ function makeSourceList(sources) {
       var $tr = $("<tr class='article'>").attr("data-uuid", obj.uuid).append(
          $("<td>").text(obj.ts.replace("T", " ")),
          $("<td class='heading'>").text(obj.heading)
-            .prepend($("<img>").attr("src", "/static/sources/" + obj.domain + ".png").attr("width", "16").attr("height", "16"))
+            .prepend($("<img>").attr("src", "/static/img/sources/" + obj.domain + ".png").attr("width", "16").attr("height", "16"))
       );
       $tbody.append($tr);
    });
@@ -242,7 +242,7 @@ function makeSearchList(results) {
          .append(
             $("<td class='ts'>").text(obj.ts_text),
             $("<td class='heading'>").text(obj.heading)
-               .prepend($("<img>").attr("src", "/static/sources/" + obj.domain + ".png")
+               .prepend($("<img>").attr("src", "/static/img/sources/" + obj.domain + ".png")
                   .attr("width", "16").attr("height", "16")),
             $("<td class='count'>").text(formatReal(obj.similarity, 1) + "%")
          );
@@ -428,7 +428,7 @@ function populateQueryResult(r) {
                for (var i = 0; i < urlList.length; i++) {
                   var u = urlList[i];
                   var img = $("<img width='16' height='16'></img>")
-                     .attr("src", "/static/sources/" + u.domain + ".png");
+                     .attr("src", "/static/img/sources/" + u.domain + ".png");
                   var art_link = $("<span class='art-link'></span>")
                      .attr("title", u.heading)
                      .attr("data-uuid", u.uuid)
@@ -533,6 +533,7 @@ function _submitQuery(q) {
    clearQueryResult();
    q.client_type = "www";
    q.client_id = navigator.userAgent;
+   q.client_version = "";
    // Launch the query
    serverQuery('/query.api',
       q, // Query dictionary
