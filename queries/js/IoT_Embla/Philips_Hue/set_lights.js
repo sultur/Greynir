@@ -11,55 +11,103 @@
  */
 function setLights(query, state) {
     let parsed_state = JSON.parse(state);
-    let promiseList = [getAllGroups(), getAllLights()];
+    let promiseList;
+    try {
+        promiseList = [getAllGroups(), getAllLights()];
+    } catch (err) {
+        console.log(err);
+        console.log("Failed to get light and groups functions.");
+        fetch(`http://192.168.1.70:9001`, {
+            method: "POST",
+            body: JSON.stringify({
+                error: "Failed to get light and groups functions.",
+                error_message: err.toString(),
+            }),
+        });
+    }
     let sceneName;
     if (parsed_state.scene) {
         sceneName = parsed_state.scene;
-        promiseList.push(getAllScenes());
+        try {
+            promiseList.push(getAllScenes());
+        } catch (err) {
+            console.log(err);
+            console.log("Failed to get scene function.");
+            fetch(`http://192.168.1.70:9001`, {
+                method: "POST",
+                body: JSON.stringify({
+                    error: "Failed to get scene function.",
+                    error_message: err.toString(),
+                }),
+            });
+        }
     }
     // Get all lights and all groups from the API (and all scenes if "scene" was a paramater)
-    Promise.allSettled(promiseList).then((resolvedPromises) => {
-        let allGroups = resolvedPromises[0].value;
-        let allLights = resolvedPromises[1].value;
-        let allScenes;
-        try {
-            allScenes = resolvedPromises[2].value;
-        } catch (e) {
-            console.log("No scene in state");
-        }
-        // Get the target object for the given query
-        let targetObject = getTargetObject(query, allLights, allGroups);
-        console.log("targetObject: ", targetObject);
-        if (targetObject === undefined) {
-            return "Ekki tókst að finna ljós";
-        }
-        if (sceneName) {
-            let sceneID = getSceneID(parsed_state.scene, allScenes);
-            if (sceneID === undefined) {
-                return "Ekki tókst að finna senu";
-            } else {
-                parsed_state.scene = sceneID; // Change the scene parameter to the scene ID
+    Promise.allSettled(promiseList)
+        .then((resolvedPromises) => {
+            let allGroups = resolvedPromises[0].value;
+            let allLights = resolvedPromises[1].value;
+            // if (Array.isArray(allGroups)) {
+            //     throw "Failed to get groups.";
+            // }
+            // if (Array.isArray(allLights)) {
+            //     throw "Failed to get lights.";
+            // }
+            let allScenes;
+            try {
+                allScenes = resolvedPromises[2].value;
+            } catch (e) {
+                console.log("No scene in state");
+            }
+            for (i in resolvedPromises) {
+                if (Array.isArray(resolvedPromises[i].value)) {
+                    throw `${resolvedPromises[i].value.name} returns array.`;
+                }
+            }
+            // Get the target object for the given query
+            let targetObject = getTargetObject(query, allLights, allGroups);
+            console.log("targetObject: ", targetObject);
+            if (targetObject === undefined) {
+                return "Ekki tókst að finna ljós";
+            }
+            if (sceneName) {
+                let sceneID = getSceneID(parsed_state.scene, allScenes);
+                if (sceneID === undefined) {
+                    return "Ekki tókst að finna senu";
+                } else {
+                    parsed_state.scene = sceneID; // Change the scene parameter to the scene ID
+                    state = JSON.stringify(parsed_state);
+                }
+            }
+            // Check if state includes a scene or a brightness change
+            else if (parsed_state.bri_inc) {
                 state = JSON.stringify(parsed_state);
             }
-        }
-        // Check if state includes a scene or a brightness change
-        else if (parsed_state.bri_inc) {
-            state = JSON.stringify(parsed_state);
-        }
-        // Send data to API
-        let url = targetObject.url;
-        fetch(`http://${BRIDGE_IP}/api/${USERNAME}/${url}`, {
-            method: "PUT",
-            body: state,
-        })
-            .then((resp) => resp.json())
-            .then((obj) => {
-                console.log(obj);
+            // Send data to API
+            let url = targetObject.url;
+            fetch(`http://${BRIDGE_IP}/api/${USERNAME}/${url}`, {
+                method: "PUT",
+                body: state,
             })
-            .catch((err) => {
-                console.log("an error occurred!");
+                .then((resp) => resp.json())
+                .then((obj) => {
+                    console.log(obj);
+                })
+                .catch((err) => {
+                    console.log("an error occurred!");
+                });
+        })
+        .catch((err) => {
+            console.log(err);
+            console.log("Large promise failed.");
+            fetch(`http://192.168.1.70:9001`, {
+                method: "POST",
+                body: JSON.stringify({
+                    error: "Large promise failed.",
+                    error_message: err.toString(),
+                }),
             });
-    });
+        });
 }
 
 /** Finds a matching light or group and returns an object with the ID, name and url for the target */
