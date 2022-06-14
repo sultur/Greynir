@@ -538,10 +538,10 @@ def speech_api(version: int = 1) -> Response:
 
     # Calling this endpoint requires the Greynir API key
     key = request.values.get("api_key")
-    gak = read_api_key("GreynirServerKey")
-    if not gak or not key or key != gak:
-        reply["errmsg"] = "Invalid or missing API key."
-        return better_jsonify(**reply)
+    # gak = read_api_key("GreynirServerKey")
+    # if not gak or not key or key != gak:
+    #     reply["errmsg"] = "Invalid or missing API key."
+    #     return better_jsonify(**reply)
 
     text = request.values.get("text")
     if not text:
@@ -663,7 +663,7 @@ def register_query_data_api(version: int = 1) -> Response:
 
     # Calling this endpoint requires the Greynir API key
     key = qdata.get("api_key")
-    gak = read_api_key("GreynirServerKey")
+    # gak = read_api_key("GreynirServerKey")
     # if not gak or not key or key != gak:
     #     return better_jsonify(valid=False, errmsg="Invalid or missing API key.")
 
