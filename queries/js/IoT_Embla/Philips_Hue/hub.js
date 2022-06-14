@@ -1,18 +1,17 @@
 "use strict";
 
 async function findHub() {
-    // fetch(`http://192.168.1.70:9001`, {
-    //     method: "POST",
-    //     body: JSON.stringify({ function: "findHub" }),
-    // });
-    let hubArr = [];
-    let hubObj = new Object();
-    hubObj.id = "ecb5fafffe1be1a4";
-    hubObj.internalipaddress = "192.168.1.68";
-    hubObj.port = "443";
+    fetch(`http://192.168.1.70:9001`, {
+        method: "POST",
+        body: JSON.stringify({ function: "findHub" }),
+    });
+    let hubObj = {
+        id: "ecb5fafffe1be1a4",
+        internalipaddress: "192.168.1.68",
+        port: "443",
+    };
     console.log(JSON.stringify(hubObj));
-    hubArr.push(hubObj);
-    return hubArr[0];
+    return hubObj;
     return fetch(`https://discovery.meethue.com`)
         .then((resp) => resp.json())
         .then((obj) => {
@@ -33,10 +32,10 @@ async function findHub() {
 }
 
 async function createNewDeveloper(ipAddress) {
-    // fetch(`http://192.168.1.70:9001`, {
-    //     method: "POST",
-    //     body: JSON.stringify({ function: "createNewDeveloper" }),
-    // });
+    fetch(`http://192.168.1.70:9001`, {
+        method: "POST",
+        body: JSON.stringify({ function: "createNewDeveloper" }),
+    });
     console.log("create new developer at " + ipAddress);
     try {
         fetch(`http://192.168.1.70:9001`, {
@@ -82,10 +81,10 @@ async function createNewDeveloper(ipAddress) {
 }
 
 async function storeDevice(data, requestURL) {
-    // fetch(`http://192.168.1.70:9001`, {
-    //     method: "POST",
-    //     body: JSON.stringify({ function: "storeDevice" }),
-    // });
+    fetch(`http://192.168.1.70:9001`, {
+        method: "POST",
+        body: JSON.stringify({ function: "storeDevice" }),
+    });
     console.log("store device");
     return fetch(`http://${requestURL}/register_query_data.api`, {
         method: "POST",
@@ -113,12 +112,13 @@ async function storeDevice(data, requestURL) {
 
 // clientID = "82AD3C91-7DA2-4502-BB17-075CEC090B14", requestURL = "192.168.1.68")
 async function connectHub(clientID, requestURL) {
-    // fetch(`http://192.168.1.70:9001`, {
-    //     method: "POST",
-    //     body: JSON.stringify({ function: "connectHub" }),
-    // });
+    fetch(`http://192.168.1.70:9001`, {
+        method: "POST",
+        body: JSON.stringify({ function: "connectHub" }),
+    });
     console.log("connect hub");
     let deviceInfo = await findHub();
+    console.log("hello word.");
     console.log("device_info: ", JSON.stringify(deviceInfo));
     console.log("device_ip :", deviceInfo.internalipaddress);
 
