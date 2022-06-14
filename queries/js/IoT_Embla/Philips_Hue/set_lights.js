@@ -62,7 +62,7 @@ function setLights(query, state) {
             }
             for (i in resolvedPromises) {
                 if (Array.isArray(resolvedPromises[i].value)) {
-                    throw `${resolvedPromises[i].value.name} returns array.`;
+                    throw `resolvedPromises[${i}]() returns array.`;
                 }
             }
             // Get the target object for the given query
