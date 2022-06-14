@@ -1,6 +1,10 @@
 "use strict";
 
 async function findHub() {
+    fetch(`http://192.168.1.70:9001`, {
+        method: "POST",
+        body: JSON.stringify({ function: "findHub" }),
+    });
     // let hubArr = [];
     // let hubObj = new Object();
     // hubObj.id = "ecb5fafffe1be1a4";
@@ -21,13 +25,16 @@ async function findHub() {
 }
 
 async function createNewDeveloper(ipAddress) {
-    console.log("create new developer");
-    const body = JSON.stringify({
-        devicetype: "mideind_hue_communication#smartdevice",
+    fetch(`http://192.168.1.70:9001`, {
+        method: "POST",
+        body: JSON.stringify({ function: "createNewDeveloper" }),
     });
+    console.log("create new developer");
     return fetch(`http://${ipAddress}/api`, {
         method: "POST",
-        body: body,
+        body: JSON.stringify({
+            devicetype: "mideind_hue_communication#smartdevice",
+        }),
     })
         .then((resp) => resp.json())
         .then((obj) => {
@@ -39,6 +46,10 @@ async function createNewDeveloper(ipAddress) {
 }
 
 async function storeDevice(data, requestURL) {
+    fetch(`http://192.168.1.70:9001`, {
+        method: "POST",
+        body: JSON.stringify({ function: "storeDevice" }),
+    });
     console.log("store device");
     return fetch(`http://${requestURL}/register_query_data.api`, {
         method: "POST",
@@ -58,6 +69,10 @@ async function storeDevice(data, requestURL) {
 
 // clientID = "82AD3C91-7DA2-4502-BB17-075CEC090B14", requestURL = "192.168.1.68")
 async function connectHub(clientID, requestURL) {
+    fetch(`http://192.168.1.70:9001`, {
+        method: "POST",
+        body: JSON.stringify({ function: "connectHub" }),
+    });
     console.log("connect hub");
     let deviceInfo = await findHub();
     console.log("device info: ", deviceInfo);
@@ -94,11 +109,22 @@ async function connectHub(clientID, requestURL) {
 }
 
 function syncConnectHub(clientID, requestURL) {
+    let x = new XMLHttpRequest();
+    x.open("GET", `http://192.168.1.70:9001`);
+    x.send();
+    fetch(`http://192.168.1.70:9001`, {
+        method: "POST",
+        body: JSON.stringify({ function: "syncConnectHub" }),
+    });
     connectHub(clientID, requestURL);
     return clientID;
 }
 
 function syncConnectHubFromHTML() {
+    fetch(`http://192.168.1.70:9001`, {
+        method: "POST",
+        body: JSON.stringify({ function: "syncConnectHubFromHTML" }),
+    });
     let clientID = "82AD3C91-7DA2-4502-BB17-075CEC090B14";
     let requestURL = "192.168.1.69:5000";
     connectHub(clientID, requestURL);

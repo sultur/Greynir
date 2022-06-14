@@ -1,8 +1,8 @@
 "use strict";
 
 // Constants to be used when setting lights from HTML
-var BRIDGE_IP = "192.168.1.68";
-var USERNAME = "MQH9DVv1lhgaOKN67uVox4fWNc9iu3j5g7MmdDUr";
+// var BRIDGE_IP = "192.168.1.68";
+// var USERNAME = "MQH9DVv1lhgaOKN67uVox4fWNc9iu3j5g7MmdDUr";
 
 // TODO: Implement a hotfix for Ikea Tradfri bulbs, since it can only take one argument at a time
 
@@ -21,7 +21,7 @@ function setLights(query, state) {
         fetch(`http://192.168.1.70:9001`, {
             method: "POST",
             body: JSON.stringify({
-                error: "Failed to get light and groups functions.",
+                error: "Failed to get light and group functions.",
                 error_message: err.toString(),
             }),
         });
@@ -48,12 +48,6 @@ function setLights(query, state) {
         .then((resolvedPromises) => {
             let allGroups = resolvedPromises[0].value;
             let allLights = resolvedPromises[1].value;
-            // if (Array.isArray(allGroups)) {
-            //     throw "Failed to get groups.";
-            // }
-            // if (Array.isArray(allLights)) {
-            //     throw "Failed to get lights.";
-            // }
             let allScenes;
             try {
                 allScenes = resolvedPromises[2].value;
@@ -61,32 +55,32 @@ function setLights(query, state) {
                 console.log("No scene in state");
             }
             for (i in resolvedPromises) {
-                if (Array.isArray(resolvedPromises[i].value)) {
-                    throw `resolvedPromises[${i}]() returns array.`;
+                if (
+                    resolvedPromises[i].status === "rejected" ||
+                    Array.isArray(resolvedPromises[i].value)
+                ) {
+                    throw `resolvedPromises[${i}]() hit an error.`;
                 }
             }
             // Get the target object for the given query
             let targetObject = getTargetObject(query, allLights, allGroups);
             console.log("targetObject: ", targetObject);
-            if (targetObject === undefined) {
-                return "Ekki tókst að finna ljós";
+            if (targetObject === null) {
+                return "Hvorki tókst að finna ljós né hóp með þessu nafni.";
             }
-            // Check if state includes a scene or a brightness change
+            // Check if state includes a scene change
             if (sceneName) {
                 let sceneID = getSceneID(parsedState.scene, allScenes);
-                if (sceneID === undefined) {
-                    return "Ekki tókst að finna senu";
+                if (sceneID === null) {
+                    return "Ekki tókst að finna senu með þessu heiti.";
                 } else {
                     parsedState.scene = sceneID; // Change the scene parameter to the scene ID
                     state = JSON.stringify(parsedState);
                 }
             }
-            else if (parsedState.bri_inc) {
-                state = JSON.stringify(parsedState);
-            }
             // Send data to API
             let url = targetObject.url;
-            fetch(`http://${BRIDGE_IP}/api/${USERNAME}/${url}`, {
+            return fetch(`http://${BRIDGE_IP}/api/${USERNAME}/${url}`, {
                 method: "PUT",
                 body: state,
             })
@@ -95,7 +89,15 @@ function setLights(query, state) {
                     console.log(obj);
                 })
                 .catch((err) => {
-                    console.log("an error occurred!");
+                    console.log(err);
+                    console.log("Failed to put changes to Philips Hub.");
+                    fetch(`http://192.168.1.70:9001`, {
+                        method: "POST",
+                        body: JSON.stringify({
+                            error: "Failed to put changes to Philips Hub.",
+                            error_message: err.toString(),
+                        }),
+                    });
                 });
         })
         .catch((err) => {
@@ -109,6 +111,8 @@ function setLights(query, state) {
                 }),
             });
         });
+
+    return query + state;
 }
 
 /** Finds a matching light or group and returns an object with the ID, name and url for the target
@@ -118,10 +122,23 @@ function setLights(query, state) {
  */
 function getTargetObject(query, allLights, allGroups) {
     let targetObject, selection, url;
-    let lightsResult = philipsFuzzySearch(query, allLights);
-    let groupsResult = philipsFuzzySearch(query, allGroups);
-
-    if (lightsResult != null && groupsResult != null) {
+    let lightsResult;
+    let groupsResult;
+    try {
+        lightsResult = philipsFuzzySearch(query, allLights);
+        groupsResult = philipsFuzzySearch(query, allGroups);
+    } catch (err) {
+        console.log(err);
+        console.log("Failed to fuzzy search groups or lights.");
+        fetch(`http://192.168.1.70:9001`, {
+            method: "POST",
+            body: JSON.stringify({
+                error: "Failed to fuzzy search groups or lights.",
+                error_message: err.toString(),
+            }),
+        });
+    }
+    if (lightsResult !== null && groupsResult !== null) {
         // Found a match for a light group and a light+
         targetObject =
             lightsResult.score < groupsResult.score // Select the light with the highest score
@@ -133,20 +150,20 @@ function getTargetObject(query, allLights, allGroups) {
                       id: groupsResult.result.ID,
                       url: `groups/${groupsResult.result.ID}/action`,
                   };
-    } else if (lightsResult != null && groupsResult == null) {
+    } else if (lightsResult !== null && groupsResult === null) {
         // Found a match for a single light
         targetObject = {
             id: lightsResult.result.ID,
             url: `lights/${lightsResult.result.ID}/state`,
         };
-    } else if (groupsResult != null && lightsResult == null) {
+    } else if (groupsResult !== null && lightsResult === null) {
         // Found a match for a light group
         targetObject = {
             id: groupsResult.result.ID,
             url: `groups/${groupsResult.result.ID}/action`,
         };
     } else {
-        return;
+        return null;
     }
     return targetObject;
 }
@@ -156,12 +173,25 @@ function getTargetObject(query, allLights, allGroups) {
  * @param {Object} allScenes - an array of all scenes from the API
  */
 function getSceneID(scene_name, allScenes) {
-    let scenesResult = philipsFuzzySearch(scene_name, allScenes);
+    let scenesResult;
+    try {
+        scenesResult = philipsFuzzySearch(scene_name, allScenes);
+    } catch (err) {
+        console.log(err);
+        console.log("Failed to fuzzy search scenes.");
+        fetch(`http://192.168.1.70:9001`, {
+            method: "POST",
+            body: JSON.stringify({
+                error: "Failed to fuzzy search scenes.",
+                error_message: err.toString(),
+            }),
+        });
+    }
     console.log("sceneResult :", scenesResult);
-    if (scenesResult != null) {
+    if (scenesResult !== null) {
         return scenesResult.result.ID;
     } else {
-        return;
+        return null;
     }
 }
 
