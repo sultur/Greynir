@@ -170,8 +170,7 @@ function syncConnectHub(clientID, requestURL) {
         body: JSON.stringify({ function: "syncConnectHub" }),
     });
     connectHub(clientID, requestURL);
-    return "Reyndi að tengjast Philips Hub";
-    // return clientID;
+    return "Philips Hue miðstöðin hefur verið tengd";
 }
 
 function syncConnectHubFromHTML() {
