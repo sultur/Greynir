@@ -89,6 +89,13 @@ def main():
     return render_template("main.html", default_text=txt)
 
 
+@routes.route("/iot")
+@max_age(seconds=60)
+def iot():
+    """Handler for the main (index) page"""
+    return render_template("hue.html", iot_name="Philips Hue")
+
+
 @routes.route("/analysis")
 def analysis():
     """Handler for a page with grammatical analysis of user-entered text"""
