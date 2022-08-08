@@ -89,11 +89,18 @@ def main():
     return render_template("main.html", default_text=txt)
 
 
-@routes.route("/iot")
+@routes.route("/iot/<device>")
 @max_age(seconds=60)
-def iot():
-    """Handler for the main (index) page"""
-    return render_template("hue.html", iot_name="Philips Hue")
+def iot(device: str):
+    """Handler for device connection views."""
+    return render_template(f"{str(device)}.html", iot_name="kari og joi snillar")
+
+
+# @routes.route("/iot/hue_connected")
+# @max_age(seconds=60)
+# def iot():
+#     """Handler for the main (index) page"""
+#     return render_template("hue.html", iot_name="Philips Hue")
 
 
 @routes.route("/analysis")
