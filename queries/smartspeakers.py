@@ -31,7 +31,7 @@
 # TODO: No specified location
 # TODO: Fix scene issues
 
-from typing import Dict, cast
+from typing import Dict, Sequence, cast
 
 import logging
 import random
@@ -70,7 +70,7 @@ _RADIO_STREAMS: Dict[str, str] = {
 
 _SPEAKER_QTYPE = "Smartspeakers"
 
-TOPIC_LEMMAS = [
+TOPIC_LEMMAS: Sequence[str] = [
     "tónlist",
     "spila",
     "útvarp",
@@ -201,6 +201,7 @@ def sentence(state: QueryStateDict, result: Result) -> None:
             )
 
             answer: str
+            #TODO: wrap in try/except
             if qk == "turn_on":
                 sonos_client.toggle_play()
                 answer = "Ég kveikti á tónlist"
@@ -240,6 +241,7 @@ def sentence(state: QueryStateDict, result: Result) -> None:
                 .replace("stofnaðu ", "stoppaðu ")
                 .replace("Stoppa í", "Stoppaðu")
                 .replace("stoppa í", "stoppaðu")
+                .replace("tónlistarmaður", "tónlist")
             )
             q.set_answer(
                 dict(answer=answer),
