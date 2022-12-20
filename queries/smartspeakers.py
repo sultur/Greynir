@@ -31,7 +31,7 @@
 # TODO: No specified location
 # TODO: Fix scene issues
 
-from typing import Dict, Sequence, cast
+from typing import Any, Dict, Sequence, cast, Optional
 
 import logging
 import random
@@ -190,18 +190,24 @@ def sentence(state: QueryStateDict, result: Result) -> None:
     try:
         q.set_qtype(result.qtype)
         cd = q.client_data("iot")
-        device_data = None
-        if cd:
-            device_data = cd.get("iot_speakers")
-        if device_data is not None:
-            sonos_client = SonosClient(
-                cast(SonosDeviceData, device_data),
-                q.client_id,
-                group_name=result.get("group_name"),
-            )
+        if cd is None:
+            raise KeyError("No client data")
+        speaker_data = cast(Dict[str, Any], cd.get("iot_speakers"))
+        if speaker_data is None:
+            raise KeyError("No speaker data")
+        device_data = speaker_data["sonos"]
+        if device_data is None:
+            raise KeyError("No Sonos data")
 
-            answer: str
-            #TODO: wrap in try/except
+        sonos_client = SonosClient(
+            device_data,
+            q.client_id,
+            group_name=result.get("group_name"),
+        )
+
+        answer: str
+        # FIXME: Need to raise the actual error from sonos.py
+        try:
             if qk == "turn_on":
                 sonos_client.toggle_play()
                 answer = "Ég kveikti á tónlist"
@@ -229,26 +235,29 @@ def sentence(state: QueryStateDict, result: Result) -> None:
             else:
                 logging.warning("Incorrect qkey in speaker module")
                 return
-
-            q.query_is_command()
-            q.set_key(qk)
-            q.set_beautified_query(
-                q.beautified_query.replace("London", "Rondó")
-                .replace(" eydís ", " 80s ")
-                .replace(" Eydís ", " 80s ")
-                .replace(" ljóð", " hljóð")
-                .replace("Stofnaðu ", "Stoppaðu ")
-                .replace("stofnaðu ", "stoppaðu ")
-                .replace("Stoppa í", "Stoppaðu")
-                .replace("stoppa í", "stoppaðu")
-                .replace("tónlistarmaður", "tónlist")
-            )
-            q.set_answer(
-                dict(answer=answer),
-                answer,
-                answer.replace("Sonos", "Sónos"),
-            )
+        except Exception as e:
+            logging.warning("Error in speaker module: {0}".format(e))
             return
+
+        q.query_is_command()
+        q.set_key(qk)
+        q.set_beautified_query(
+            q.beautified_query.replace("London", "Rondó")
+            .replace(" eydís ", " 80s ")
+            .replace(" Eydís ", " 80s ")
+            .replace(" ljóð", " hljóð")
+            .replace("Stofnaðu ", "Stoppaðu ")
+            .replace("stofnaðu ", "stoppaðu ")
+            .replace("Stoppa í", "Stoppaðu")
+            .replace("stoppa í", "stoppaðu")
+            .replace("tónlistarmaður", "tónlist")
+        )
+        q.set_answer(
+            dict(answer=answer),
+            answer,
+            answer.replace("Sonos", "Sónos"),
+        )
+        return
     except Exception as e:
         logging.warning("Exception answering smartspeaker query: {0}".format(e))
         q.set_error("E_EXCEPTION: {0}".format(e))
