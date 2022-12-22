@@ -449,7 +449,7 @@ def query_json_api(url: str, headers: Optional[Dict[str, str]] = None) -> JsonRe
 
     # Parse json API response
     try:
-        res = json.loads(r.text)
+        res = r.json()
         return res
     except Exception as e:
         logging.warning("Error parsing JSON API response: {0}".format(e))

@@ -20,12 +20,10 @@
     Class which encapsulates communication with the Sonos API.
 
 """
-from typing import Dict, Optional, Union, List, Any, cast, Mapping
+from typing import Dict, Optional, List, Any, cast, Mapping
 
 import logging
-import json
 from typing_extensions import TypedDict, Required
-import flask  # type: ignore
 import requests
 from datetime import datetime, timedelta
 
@@ -33,40 +31,29 @@ from utility import read_api_key
 from queries import query_json_api
 from query import Query, ClientDataDict
 
-# TODO: How does it work to throw an error here? We don't want the function
-# to be able to return None. Instead, it should throw an error. This
-# would allow for us do try except type things when calling this
-# function. Instead of the if response is None crap
+# TODO: Changed the exceptions and bailed on the try-except block
 def post_to_json_api(
     url: str,
     *,
-    form_data: Optional[str] = None,
-    # json_data: Optional[str] = None,
-    # headers: Optional[Dict[str, str]] = None,
-    headers: Dict[str, str],
-) -> Union[None, List[Any], Dict[str, Any]]:
+    json_data: Optional[Dict[str, Any]] = None,
+    headers: Optional[Dict[str, str]] = None,
+) -> Dict[str, Any]:
     """Send a POST request to the URL, expecting a JSON response which is
     parsed and returned as a Python data structure."""
 
     # Send request
     try:
-        r = requests.post(url, data=form_data, headers=headers)
+        r = requests.post(url, json=json_data, headers=headers)
     except Exception as e:
         logging.warning(str(e))
-        return None
+        raise e
 
-    # Verify that status is OK
-    if r.status_code not in range(200, 300):
-        logging.warning("Received status {0} from API server".format(r.status_code))
-        return None
-
-    # Parse json API response
     try:
-        res = json.loads(r.text)
+        res = cast(Dict[str, Any], r.json())
         return res
     except Exception as e:
-        logging.warning("Error parsing JSON API response: {0}".format(e))
-    return None
+        logging.warning(f"Error parsing JSON API response: {e}")
+        raise e
 
 
 # Translate various icelandic room names to
@@ -118,28 +105,22 @@ _ICE_TO_ENG_DICT: Mapping[str, str] = {
 }
 
 
-class TooManyHouseholdsError(Exception):
-    """Raised when the user has more than one household."""
+class SonosError(Exception):
+    """Raised when there is an error communicating with the Sonos API."""
 
     ...
 
 
-class GroupNotFoundError(KeyError):
-    """Raised when a group is not found."""
-
-    ...
-
-
-class _SonosData(TypedDict):
+class _SonosData(TypedDict, total=False):
     last_group_id: str
-    last_radio_url: str
+    last_radio_url: Required[str]
 
 
 class _SonosCreds(TypedDict):
-    code: str
-    timestamp: str
     access_token: str
     refresh_token: str
+    timestamp: str
+    expires_in: int
 
 
 class SonosDeviceData(TypedDict):
@@ -204,17 +185,45 @@ _PLAYER_ENDPOINT = f"{_API_ENDPOINT}/players"
 _PLAYBACKSESSIONS_ENDPOINT = f"{_API_ENDPOINT}/playbackSessions"
 _VOLUME_INCREMENT = 20
 
-# TODO - Decide what should happen if user does not designate a speaker but owns multiple speakers
-# TODO - Testing and proper error handling
-# TODO - Implement a cleaner create_or_join_session function that doesn't rely on recursion
-# TODO - Failsafe for responses from playback, volume endpoints.
-# TODO - Resolve players issue, whether that information needs to be accessed
+# TODO - Failsafe for responses from playback, volume endpoints. i.e. return apprpriate error message to user.
 # TODO - Add some error when households exceed one
-# TODO - Data as another whatever
-# TODO - expires_in seconds for checking if token is expired
-# TODO - Api call error handling
+# TODO - Data as another whatever. (I don't know what I meant here)
 class SonosClient:
     _encoded_credentials: str = read_api_key("SonosEncodedCredentials")
+
+    @classmethod
+    def create_token(cls, client_id: str, code: str, host: str) -> None:
+        """
+        Creates a token given a code
+        """
+
+        url_params = {
+            "grant_type": "authorization_code",
+            "code": code,
+            "redirect_uri": f"http://{host}/connect_sonos.api",
+        }
+        resp = requests.post(
+            _OAUTH_ACCESS_ENDPOINT,
+            params=url_params,
+            headers={"Authorization": f"Basic {cls._encoded_credentials}"},
+        )
+        status_code = resp.status_code
+        r = resp.json()
+
+        if status_code != 200:
+            raise SonosError(f'Error {status_code} while creating token: {r["error"]}')
+
+        r = cast(_SonosAuthResponse, r)
+        data: SonosDeviceData = {
+            "credentials": {
+                "timestamp": str(datetime.now()),
+                "expires_in": r["expires_in"],
+                "access_token": r["access_token"],
+                "refresh_token": r["refresh_token"],
+            },
+            "data": {"last_radio_url": "http://netradio.ruv.is:80/ras1.mp3"},
+        }
+        Query.store_query_data(client_id, "sonos", cast(ClientDataDict, data))
 
     def __init__(
         self,
@@ -228,26 +237,20 @@ class SonosClient:
         self._group_name: Optional[str] = group_name
         self._last_group_id: str
         self._radio_name: Optional[str] = radio_name
-        self._last_radio_url: str
-        self._timestamp: str
-        self._access_token: str
-        self._refresh_token: str
+        self._last_radio_url: str = device_data["data"]["last_radio_url"]
+        c = self._device_data["credentials"]
+        self._access_token: str = c["access_token"]
+        self._refresh_token: str = c["refresh_token"]
+        self._timestamp: str = c["timestamp"]
+        self._expires_in: int = c["expires_in"]
         self._households: List[_SonosHouseholdDict]
         self._groups: Dict[str, str]
         self._household_id: str
-        # self._players: Dict[str, str]
         self._group_id: str
         self._player_id: str
+        self._code: str
 
-        c = self._device_data["credentials"]
-        self._code: str = c["code"]
-        try:
-            self._access_token = c["access_token"]
-            self._refresh_token = c["refresh_token"]
-            self._timestamp = c["timestamp"]
-            self._check_token_expiration()
-        except KeyError:
-            self._create_token()
+        self._check_token_expiration()
 
         self._headers = {
             "Content-Type": "application/json",
@@ -255,9 +258,6 @@ class SonosClient:
         }
         self._set_households()
         self._group_api_call()
-        self._last_radio_url = self._device_data["data"].get(
-            "last_radio_url", "http://netradio.ruv.is:80/ras1.mp3"
-        )
         self._store_data_and_credentials()
 
     def _check_token_expiration(self) -> None:
@@ -265,10 +265,8 @@ class SonosClient:
         Checks if access token is expired,
         and calls a function to refresh it if necessary.
         """
-        # FIXME: This hotfix is needed right now, and has been always. It shouldn't be.
-        self._update_sonos_token()
         timestamp = datetime.strptime(self._timestamp, "%Y-%m-%d %H:%M:%S.%f")
-        if (datetime.now() - timestamp) > timedelta(hours=24):
+        if (datetime.now() - timestamp) > timedelta(seconds=self._expires_in):
             self._update_sonos_token()
 
     def _update_sonos_token(self) -> None:
@@ -279,62 +277,63 @@ class SonosClient:
 
         sonos_dict: SonosDeviceData = {
             "credentials": {
-                "code": self._code,
-                "timestamp": self._timestamp,
                 "access_token": self._access_token,
                 "refresh_token": self._refresh_token,
+                "timestamp": self._timestamp,
+                "expires_in": self._expires_in,
             },
             "data": self._device_data["data"],
         }
         self._store_data(sonos_dict)
 
+    # TODO - Add error throwing/handling for when the refresh token doesn't work
     def _refresh_expired_token(self) -> None:
         """
         Helper function for updating the access token.
         """
-        r = requests.post(
+        url_params = {
+            "grant_type": "refresh_token",
+            "refresh_token": self._refresh_token,
+        }
+
+        resp = requests.post(
             _OAUTH_ACCESS_ENDPOINT,
-            params={
-                "grant_type": "refresh_token",
-                "refresh_token": self._refresh_token,
-            },
+            params=url_params,
             headers={"Authorization": f"Basic {self._encoded_credentials}"},
         )
-        response: _SonosAuthResponse = r.json()
+        status_code = resp.status_code
+        r = resp.json()
 
-        self._access_token = response["access_token"]
-        self._timestamp = str(datetime.now())
+        if status_code != 200:
+            raise SonosError(f'Error {status_code} while creating token: {r["error"]}')
 
-    def _create_token(self) -> None:
-        """
-        Creates a token given a code
-        """
-        host = str(flask.request.host)  # type: ignore
-        r = requests.post(
-            _OAUTH_ACCESS_ENDPOINT,
-            params={
-                "grant_type": "authorization_code",
-                "code": self._code,
-                "redirect_uri": f"http://{host}/connect_sonos.api",
-            },
-            headers={"Authorization": f"Basic {self._encoded_credentials}"},
-        )
-        response: _SonosAuthResponse = r.json()
-        self._access_token = response.get("access_token")
-        self._refresh_token = response.get("refresh_token")
+        r = cast(_SonosAuthResponse, r)
+        self._access_token = r["access_token"]
         self._timestamp = str(datetime.now())
 
     def _set_households(self) -> None:
         """
         Sets the households, and household ID for the user
         """
+        r = query_json_api(_HOUSEHOLDS_ENDPOINT, headers=self._headers)
+
         response = cast(
             _SonosHouseholdResponse,
-            requests.get(_HOUSEHOLDS_ENDPOINT, headers=self._headers).json(),
+            r,
         )
-
         self._households = response["households"]
-        self._household_id = self._households[0]["id"]
+        # Need at least one household.
+        # FIXME: Add support for multiple households.
+        if len(self._households) == 0:
+            raise SonosError(
+                "No households found.",
+                "Ekki fannst Sonos-kerfi tengt Sonos-aðganginum þínum.",
+                "Ekki fannst virk Sonos-tenging.",
+            )
+        # elif len(self._households) > 1:
+        #     raise SonosError("More than one household found.")
+        else:
+            self._household_id = self._households[0]["id"]
 
     def _group_api_call(self) -> None:
         """
@@ -345,7 +344,6 @@ class SonosClient:
         response = cast(_SonosGroupResponse, query_json_api(url, headers=self._headers))
 
         self._set_groups(response)
-        # self._set_players(response)
         self._set_player_id(response)
 
     def _set_groups(self, response: _SonosGroupResponse) -> None:
@@ -365,26 +363,24 @@ class SonosClient:
                 self._groups.get(self._translate_group_name().casefold()),
             )
             if group_id is None:
-                raise GroupNotFoundError(self._group_name)
+                raise SonosError(
+                    f"Could not find group with name {self._group_name}",
+                    f"Fann engan hóp með nafnið {self._group_name}",
+                    "Fann ekki hóp með þessu nafni.",
+                )
             self._group_id = group_id
         else:
+            # If the user doesn't specify a group name, use the last used group.
+            # If there is no such group, use the first group in the list.
             try:
                 self._group_id = self._last_group_id
             except AttributeError:
                 self._group_id = next(iter(self._groups.values()))
         self._last_group_id = self._group_id
 
-    # def _set_players(self, response: _SonosGroupResponse) -> None:
-    #     """
-    #     Sets the players
-    #     """
-    #     cleaned_players_dict = self._create_playerdict_for_db(response["players"])
-
-    #     self._players = cleaned_players_dict
-
     def _set_player_id(self, response: _SonosGroupResponse) -> None:
         """
-        Sets the player ID, by finding the coordinator id of the group id
+        Sets the player ID, by finding the coordinator ID for the selected group
         """
         groups = response["groups"]
 
@@ -406,8 +402,8 @@ class SonosClient:
         cred_dict: _SonosCreds = {
             "access_token": self._access_token,
             "refresh_token": self._refresh_token,
-            "code": self._code,
             "timestamp": self._timestamp,
+            "expires_in": self._expires_in,
         }
         return cred_dict
 
@@ -428,65 +424,71 @@ class SonosClient:
         self._store_data(sonos_dict)
 
     def _store_data(self, data: SonosDeviceData) -> None:
-        new_dict: ClientDataDict = {"iot_speakers": cast(Dict[str, str], data)}
-        Query.store_query_data(self._client_id, "iot", new_dict, update_in_place=True)
+        Query.store_query_data(self._client_id, "sonos", cast(ClientDataDict, data))
 
     def _create_groupdict_for_db(self, groups: List[_SonosGroupDict]) -> Dict[str, str]:
+        """
+        Only store the group name and ID from the Group API response.
+        """
         groups_dict: Dict[str, str] = {}
         for i in range(len(groups)):
             groups_dict[groups[i]["name"].casefold()] = groups[i]["id"]
         return groups_dict
 
-    def _create_playerdict_for_db(
-        self, players: List[_SonosPlayerDict]
-    ) -> Dict[str, str]:
-        players_dict: Dict[str, str] = {}
-        for i in range(len(players)):
-            players_dict[players[i]["name"].casefold()] = players[i]["id"]
-        return players_dict
-
-    # TODO: Come back to this. Add handling for when another app controls a session.
-    # Fix this by throwing an error in the post to json bullshit :)
-    def _create_or_join_session(self, recursion: bool = False) -> str:
+    def _create_or_join_session(self) -> str:
+        """
+        Get the session ID for the current session if Embla controls it, otherwise
+        pause the current session and attempt to create a new one.
+        """
         url = f"{_GROUP_ENDPOINT}/{self._group_id}/playbackSession/joinOrCreate"
 
-        payload = json.dumps(
-            {"appId": "com.mideind.embla", "appContext": "embla123"}
-        )  # FIXME: Use something other than embla123
+        payload = {"appId": "com.mideind.embla", "appContext": "embla123"}
+        # FIXME: Use something other than embla123
 
-        response = cast(
-            _SonosSessionResponse,
-            post_to_json_api(url, form_data=payload, headers=self._headers),
-        )
-        # FIXME: This shouldn't be included in the final version
-        if response is None:
-
+        try:
+            r = requests.post(url, json=payload, headers=self._headers)
+            if r.status_code == 499:
+                raise SonosError("Another session in progress.")
+            response = cast(
+                _SonosSessionResponse,
+                r.json(),
+            )
+            return response["sessionId"]
+        except SonosError:
             self.toggle_pause()
-            if not recursion:
-                session_id = self._create_or_join_session(recursion=True)
-            else:
-                raise ValueError("Could not create or join session")
-
-        else:
-            session_id = response["sessionId"]
-        return session_id
+            try:
+                r = requests.post(url, json=payload, headers=self._headers)
+                if r.status_code == 499:
+                    raise SonosError("Another session in progress.")
+                response = cast(
+                    _SonosSessionResponse,
+                    r.json(),
+                )
+                return response["sessionId"]
+            except SonosError:
+                raise SonosError("Could neither create nor join session.")
 
     def play_radio_stream(self, radio_url: Optional[str]) -> None:
+        """
+        Plays a radio stream on the selected group. If no radio station is
+        specified, the last played radio station is played. If this is the first
+        time a radio station is played, defaults to "Rás 1" (main station of the
+        Icelandic Broadcasting Service).
+        """
         session_id = self._create_or_join_session()
         if radio_url is None:
             radio_url = self._last_radio_url
 
         url = f"{_PLAYBACKSESSIONS_ENDPOINT}/{session_id}/playbackSession/loadStreamUrl"
 
-        payload = json.dumps(
-            {
-                "streamUrl": radio_url,
-                "playOnCompletion": True,
-                # "stationMetadata": {"name": f"{radio_name}"},
-                "itemId": "StreamItemId",
-            }
-        )
-        post_to_json_api(url, form_data=payload, headers=self._headers)
+        payload = {
+            "streamUrl": radio_url,
+            "playOnCompletion": True,
+            # "stationMetadata": {"name": f"{radio_name}"},
+            "itemId": "StreamItemId",
+        }
+
+        post_to_json_api(url, json_data=payload, headers=self._headers)
 
         data_dict: SonosDeviceData = {
             "credentials": self._device_data["credentials"],
@@ -498,20 +500,26 @@ class SonosClient:
         self._store_data(data_dict)
 
     def increase_volume(self) -> None:
+        """
+        Increases the volume of a group by a fixed increment
+        """
         url = f"{_GROUP_ENDPOINT}/{self._group_id}/groupVolume/relative"
 
-        payload = json.dumps({"volumeDelta": _VOLUME_INCREMENT})
-        post_to_json_api(url, form_data=payload, headers=self._headers)
+        payload = {"volumeDelta": _VOLUME_INCREMENT}
+        post_to_json_api(url, json_data=payload, headers=self._headers)
 
     def decrease_volume(self) -> None:
+        """
+        Decreases the volume of a group by a fixed increment
+        """
         url = f"{_GROUP_ENDPOINT}/{self._group_id}/groupVolume/relative"
 
-        payload = json.dumps({"volumeDelta": -_VOLUME_INCREMENT})
-        post_to_json_api(url, form_data=payload, headers=self._headers)
+        payload = {"volumeDelta": -_VOLUME_INCREMENT}
+        post_to_json_api(url, json_data=payload, headers=self._headers)
 
     def toggle_play(self) -> None:
         """
-        Toggles play/pause of a group
+        Turns on playback for a group
         """
         url = f"{_GROUP_ENDPOINT}/{self._group_id}/playback/play"
 
@@ -519,7 +527,7 @@ class SonosClient:
 
     def toggle_pause(self) -> None:
         """
-        Toggles play/pause of a group
+        Turns off playback for a group
         """
         url = f"{_GROUP_ENDPOINT}/{self._group_id}/playback/pause"
 
@@ -531,31 +539,32 @@ class SonosClient:
         """
         url = f"{_PLAYER_ENDPOINT}/{self._player_id}/audioClip"
 
-        payload = json.dumps(
-            {
-                "name": "Embla",
-                "appId": "com.acme.app",
-                "streamUrl": f"{audioclip_url}",
-                "volume": 30,
-                "priority": "HIGH",
-                "clipType": "CUSTOM",
-            }
-        )
-        post_to_json_api(url, form_data=payload, headers=self._headers)
+        payload = {
+            "name": "Embla",
+            "appId": "com.acme.app",
+            "streamUrl": f"{audioclip_url}",
+            "volume": 30,
+            "priority": "HIGH",
+            "clipType": "CUSTOM",
+        }
+
+        post_to_json_api(url, json_data=payload, headers=self._headers)
 
     def play_chime(self) -> None:
+        """
+        Plays a chime provided by Sonos
+        """
         url = f"{_PLAYER_ENDPOINT}/{self._player_id}/audioClip"
 
-        payload = json.dumps(
-            {
-                "name": "Embla",
-                "appId": "com.acme.app",
-                "volume": 30,
-                "priority": "HIGH",
-                "clipType": "CHIME",
-            }
-        )
-        post_to_json_api(url, form_data=payload, headers=self._headers)
+        payload = {
+            "name": "Embla",
+            "appId": "com.acme.app",
+            "volume": 30,
+            "priority": "HIGH",
+            "clipType": "CHIME",
+        }
+
+        post_to_json_api(url, json_data=payload, headers=self._headers)
 
     def next_song(self) -> None:
         url = f"{_GROUP_ENDPOINT}/{self._group_id}/playback/skipToNextTrack"

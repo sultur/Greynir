@@ -648,17 +648,15 @@ def sonos_code(version: int = 1) -> str:
     args = request.args
     client_id = args.get("state")
     code = args.get("code")
+    host = str(flask.request.host)
 
     if client_id and code:
-        code_dict = {"iot_speakers": {"sonos": {"credentials": {"code": code}}}}
-        success = QueryObject.store_query_data(
-            client_id, "iot", code_dict, update_in_place=True
-        )
+        device_data = {"credentials": {"code": code}}
+        success = QueryObject.store_query_data(client_id, "sonos", device_data)
         if success:
-            device_data = code_dict["iot_speakers"]
             # Create an instance of the SonosClient class.
             # This will automatically create the rest of the credentials needed.
-            SonosClient(device_data, client_id)
+            SonosClient.create_token(client_id, code, host)
             return render_template("iot-connect-success.html", title="Tenging tókst")
     return render_template("iot-connect-error.html", title="Tenging mistókst")
 

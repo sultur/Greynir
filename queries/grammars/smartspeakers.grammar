@@ -82,15 +82,15 @@ QSpeakerPlayRadioWithStation →
     # "Settu hátalarana yfir á útvarpsstöðina X í eldhúsinu"
     # ("á" is only optional because sometimes the TTS doesn't hear it)
     QSpeakerSetja/nhbh QSpeakerHátalari_þf "yfir"? "á"? QSpeakerÚtvarpsstöðX_þf QSpeakerÍHátalara? QSpeakerHvar?
-    | QSpeakerKveikja/nhbh "á" QSpeakerÚtvarpsstöðX_þgf
+    | QSpeakerKveikja/nhbh "á" QSpeakerÚtvarpsstöðX_þgf QSpeakerÍHátalara? QSpeakerHvar?
 
 QSpeakerPlayRadioNoStation →
     # "Settu hátalarana yfir á útvarpið í stofunni"
     QSpeakerSetja/nhbh QSpeakerHátalari_þf? "yfir"? "á"? QSpeakerÚtvarp_þf QSpeakerÍHátalara? QSpeakerHvar?
     # "Spilaðu útvarpið í hátölurunum í stofunni"
     | QSpeakerSpila/nhbh "aftur"? "áfram"? QSpeakerÚtvarp_þf QSpeakerÍHátalara? QSpeakerHvar?
-    # Kveiktu á útvarpinu
-    | QSpeakerKveikja/nhbh "á" QSpeakerÚtvarp_þgf
+    # Kveiktu á útvarpinu inni í eldhúsi
+    | QSpeakerKveikja/nhbh "á" QSpeakerÚtvarp_þgf QSpeakerÍHátalara? QSpeakerHvar?
 
 QSpeakerIncreaseVolume →
     QSpeakerGera/nhbh QSpeakerMusicOrSoundPhrase_þf QSpeakerMeiri_nf QSpeakerHvar

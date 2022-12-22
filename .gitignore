@@ -159,3 +159,6 @@ resources/*keys.*.json
 *.mp3
 *.wav
 *.pcm
+
+# typing-and-error-handling stuff
+simulateapplogin.py

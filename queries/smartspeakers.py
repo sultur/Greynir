@@ -38,7 +38,7 @@ import random
 
 from query import Query, QueryStateDict
 from queries import read_grammar_file
-from queries.extras.sonos import SonosClient, SonosDeviceData
+from queries.extras.sonos import SonosClient, SonosDeviceData, SonosError
 from tree import NonterminalNode, ParamList, Result, Node
 
 # Dictionary of radio stations and their stream urls
@@ -117,8 +117,8 @@ def QSpeakerPause(node: Node, params: ParamList, result: Result) -> None:
     result.qkey = "turn_off"
 
 
-def QSpeakerSkipVerb(node: Node, params: ParamList, result: Result) -> None:
-    result.qkey = "next_song"
+# def QSpeakerSkipVerb(node: Node, params: ParamList, result: Result) -> None:
+#     result.qkey = "next_song"
 
 
 def QSpeakerNewPlay(node: Node, params: ParamList, result: Result) -> None:
@@ -129,35 +129,43 @@ def QSpeakerNewPause(node: Node, params: ParamList, result: Result) -> None:
     result.qkey = "turn_off"
 
 
-def QSpeakerNewNext(node: Node, params: ParamList, result: Result) -> None:
-    result.qkey = "next_song"
+# def QSpeakerNewNext(node: Node, params: ParamList, result: Result) -> None:
+#     result.qkey = "next_song"
 
 
-def QSpeakerNewPrevious(node: Node, params: ParamList, result: Result) -> None:
-    result.qkey = "prev_song"
+# def QSpeakerNewPrevious(node: Node, params: ParamList, result: Result) -> None:
+#     result.qkey = "prev_song"
 
 
-def QSpeakerIncreaseVerb(node: Node, params: ParamList, result: Result) -> None:
+# def QSpeakerIncreaseVerb(node: Node, params: ParamList, result: Result) -> None:
+#     result.qkey = "increase_volume"
+
+
+# def QSpeakerDecreaseVerb(node: Node, params: ParamList, result: Result) -> None:
+#     result.qkey = "decrease_volume"
+
+
+def QSpeakerIncreaseVolume(node: Node, params: ParamList, result: Result) -> None:
     result.qkey = "increase_volume"
 
 
-def QSpeakerDecreaseVerb(node: Node, params: ParamList, result: Result) -> None:
+def QSpeakerDecreaseVolume(node: Node, params: ParamList, result: Result) -> None:
     result.qkey = "decrease_volume"
 
 
-def QSpeakerMoreOrHigher(node: Node, params: ParamList, result: Result) -> None:
-    result.qkey = "increase_volume"
+# def QSpeakerMoreOrHigher(node: Node, params: ParamList, result: Result) -> None:
+#     result.qkey = "increase_volume"
 
 
-def QSpeakerLessOrLower(node: Node, params: ParamList, result: Result) -> None:
-    result.qkey = "decrease_volume"
+# def QSpeakerLessOrLower(node: Node, params: ParamList, result: Result) -> None:
+#     result.qkey = "decrease_volume"
 
 
-def QSpeakerMusicWord(node: Node, params: ParamList, result: Result) -> None:
+def QSpeakerTónlist(node: Node, params: ParamList, result: Result) -> None:
     result.target = "music"
 
 
-def QSpeakerSpeakerWord(node: Node, params: ParamList, result: Result) -> None:
+def QSpeakerHátalari(node: Node, params: ParamList, result: Result) -> None:
     result.target = "speaker"
 
 
@@ -166,7 +174,7 @@ def QSpeakerPlayRadio(node: Node, params: ParamList, result: Result) -> None:
     result.qkey = "radio"
 
 
-def QSpeakerGroupName(node: Node, params: ParamList, result: Result) -> None:
+def QSpeakerRoom(node: Node, params: ParamList, result: Result) -> None:
     result.group_name = result._indefinite
 
 
@@ -189,13 +197,14 @@ def sentence(state: QueryStateDict, result: Result) -> None:
     qk: str = result.qkey
     try:
         q.set_qtype(result.qtype)
-        cd = q.client_data("iot")
+        # FIXME: Duplicates here
+        cd = q.client_data("sonos")
         if cd is None:
             raise KeyError("No client data")
-        speaker_data = cast(Dict[str, Any], cd.get("iot_speakers"))
+        speaker_data = cast(SonosDeviceData, cd)
         if speaker_data is None:
             raise KeyError("No speaker data")
-        device_data = speaker_data["sonos"]
+        device_data = speaker_data
         if device_data is None:
             raise KeyError("No Sonos data")
 
@@ -221,7 +230,6 @@ def sentence(state: QueryStateDict, result: Result) -> None:
                 sonos_client.decrease_volume()
                 answer = "Ég lækkaði í tónlistinni"
             elif qk == "radio":
-                # TODO: Error checking
                 station = result.get("station")
                 radio_url = _RADIO_STREAMS.get(station)
                 sonos_client.play_radio_stream(radio_url)
@@ -235,7 +243,7 @@ def sentence(state: QueryStateDict, result: Result) -> None:
             else:
                 logging.warning("Incorrect qkey in speaker module")
                 return
-        except Exception as e:
+        except SonosError as e:
             logging.warning("Error in speaker module: {0}".format(e))
             return
 
