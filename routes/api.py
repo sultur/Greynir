@@ -648,7 +648,7 @@ def sonos_code(version: int = 1) -> str:
     args = request.args
     client_id = args.get("state")
     code = args.get("code")
-    host = str(flask.request.host)
+    host = str(request.host)
 
     if client_id and code:
         device_data = {"credentials": {"code": code}}
