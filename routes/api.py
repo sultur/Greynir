@@ -651,13 +651,9 @@ def sonos_code(version: int = 1) -> str:
     host = str(request.host)
 
     if client_id and code:
-        device_data = {"credentials": {"code": code}}
-        success = QueryObject.store_query_data(client_id, "sonos", device_data)
-        if success:
-            # Create an instance of the SonosClient class.
-            # This will automatically create the rest of the credentials needed.
-            SonosClient.create_token(client_id, code, host)
-            return render_template("iot-connect-success.html", title="Tenging tókst")
+        # Create a Sonos token
+        SonosClient.create_token(client_id, code, host)
+        return render_template("iot-connect-success.html", title="Tenging tókst")
     return render_template("iot-connect-error.html", title="Tenging mistókst")
 
 
@@ -667,23 +663,18 @@ def spotify_code(version: int = 1) -> str:
     """
     API endpoint to connect Spotify account
     """
-    print("Spotifs code")
     args = request.args
+    print("args: ", args)
     client_id = args.get("state")
+    print("client_id: ", client_id)
     code = args.get("code")
-    code_dict = {
-        "iot_streaming": {"spotify": {"credentials": {"code": code}}}
-    }  # create a dictonary with the code
+    print("code: ", code)
+    host = str(request.host)
+
     if client_id and code:
-        success = QueryObject.store_query_data(
-            client_id, "iot", code_dict, update_in_place=True
-        )
-        if success:
-            device_data = code_dict.get("iot_streaming").get("spotify")
-            # Create an instance of the SonosClient class.
-            # This will automatically create the rest of the credentials needed.
-            SpotifyClient(device_data, client_id)
-            return render_template("iot-connect-success.html", title="Tenging tókst")
+        # Create a Spotify token
+        SpotifyClient.create_token(client_id, code, host)
+        return render_template("iot-connect-success.html", title="Tenging tókst")
     return render_template("iot-connect-error.html", title="Tenging mistókst")
 
 

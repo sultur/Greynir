@@ -20,17 +20,17 @@
     Class which encapsulates communication with the Spotify API.
 
 """
-from typing import Dict, Optional, Union, List, Any
+from typing import Dict, Optional, Union, List, Any, cast
 
 import logging
+from typing_extensions import TypedDict
 import json
-import flask
 import requests
 from datetime import datetime, timedelta
 
 from utility import read_api_key
 from queries import query_json_api
-from query import Query
+from query import Query, ClientDataDict
 
 
 def post_to_json_api(
@@ -63,6 +63,7 @@ def post_to_json_api(
         logging.warning("Error parsing JSON API response: {0}".format(e))
     return None
 
+
 def put_to_json_api(
     url: str, json_data: Optional[Any] = None, headers: Optional[Dict[str, str]] = None
 ) -> Union[None, List[Any], Dict[str, Any]]:
@@ -92,132 +93,207 @@ def put_to_json_api(
     return None
 
 
+class SpotifyError(Exception):
+    "Raised when there is an error communicating with the Spotify API."
+
+    pass
+
+
+class _SpotifyData(TypedDict):
+    tbd: str
+
+
+class _SpotifyCredentials(TypedDict):
+    access_token: str
+    refresh_token: str
+    timestamp: str
+    expires_in: int
+
+
+class SpotifyDeviceData(TypedDict):
+    credentials: _SpotifyCredentials
+    data: _SpotifyData
+
+
+class _SpotifyAuthResponse(TypedDict):
+    access_token: str
+    token_type: str
+    refresh_token: str
+    expires_in: int
+    scope: str
+
+
+_OAUTH_ACCESS_ENDPOINT = "https://accounts.spotify.com/api/token"
+_API_ENDPOINT = "https://api.spotify.com/v1"
+
 # TODO Find a better way to play albums
 # TODO - Remove debug print statements
 # TODO - Testing and proper error handling
 class SpotifyClient:
+    _encoded_credentials = read_api_key("SpotifyEncodedCredentials")
+
+    # FIXME: Not modular doing this both here and in the sonos class
+    @classmethod
+    def create_token(cls, client_id: str, code: str, host: str) -> None:
+        """
+        Create a new access token given a code.
+        """
+        print("i'm here")
+
+        url_params = {
+            "grant_type": "authorization_code",
+            "code": code,
+            "redirect_uri": f"http://{host}/connect_spotify.api",
+        }
+        resp = requests.post(
+            _OAUTH_ACCESS_ENDPOINT,
+            params=url_params,
+            headers={
+                "Authorization": f"Basic {cls._encoded_credentials}",
+                "Content-Type": "application/x-www-form-urlencoded",
+            },
+        )
+        status_code = resp.status_code
+        print("entire", resp)
+        print("text ", resp.text)
+        print("json ", resp.json())
+        r = resp.json()
+
+        if status_code != 200:
+            raise SpotifyError(
+                f'Error {status_code} while creating token: {r["error"]}'
+            )
+
+        r = cast(_SpotifyAuthResponse, r)
+        data: SpotifyDeviceData = {
+            "credentials": {
+                "timestamp": str(datetime.now()),
+                "expires_in": r["expires_in"],
+                "access_token": r["access_token"],
+                "refresh_token": r["refresh_token"],
+            },
+            "data": {"tbd": "tbd"},
+        }
+        Query.store_query_data(client_id, "spotify", cast(ClientDataDict, data))
+
     def __init__(
         self,
-        device_data: Dict[str, str],
+        device_data: SpotifyDeviceData,
         client_id: str,
-        song_name: str = None,
-        artist_name: str = None,
-        album_name: str = None,
+        # FIXME: They cannot all be None
+        song_name: Optional[str] = None,
+        artist_name: Optional[str] = None,
+        album_name: Optional[str] = None,
     ):
-        self._api_url = "https://api.spotify.com/v1"
-        self._client_id = client_id
-        self._device_data = device_data
-        self._encoded_credentials = read_api_key("SpotifyEncodedCredentials")
-        self._code = self._device_data["credentials"]["code"]
+        self._client_id: str = client_id
+        self._device_data: SpotifyDeviceData = device_data
         self._song_name = song_name
         self._artist_name = artist_name
         self._song_name = song_name
-        self._song_uri = None
         self._album_name = album_name
-        self._song_url = None
-        self._album_url = None
-        self._timestamp = self._device_data.get("credentials").get("timestamp")
-        try:
-            self._access_token = self._device_data["credentials"]["access_token"]
-            self._refresh_token = self._device_data["credentials"]["refresh_token"]
-        except (KeyError, TypeError):
-            self._create_token()
+        self._song_uri: str
+        self._song_url: str
+        self._album_url: str
+        c = self._device_data["credentials"]
+        self._access_token: str = c["access_token"]
+        self._refresh_token: str = c["refresh_token"]
+        self._timestamp: str = c["timestamp"]
+        self._expires_in: int = c["expires_in"]
+
         self._check_token_expiration()
-        self._store_credentials()
 
-    def _create_token(self) -> Union[None, List[Any], Dict[str, Any]]:
-        """
-        Create a new access token for the Spotify API.
-        """
-        host = flask.request.host
-        url = f"https://accounts.spotify.com/api/token?grant_type=authorization_code&code={self._code}&redirect_uri=http://{host}/connect_spotify.api"
-
-        payload = {}
-        headers = {
-            "Content-Type": "application/x-www-form-urlencoded",
-            "Authorization": f"Basic {self._encoded_credentials}",
+        self._headers = {
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {self._access_token}",
         }
 
-        response = post_to_json_api(url, form_data=payload, headers=headers)
-        self._access_token = response.get("access_token")
-        self._refresh_token = response.get("refresh_token")
-        self._timestamp = str(datetime.now())
-        return response
+        self._store_data_and_credentials()
 
     def _check_token_expiration(self) -> None:
         """
-        Checks if access token is expired, and calls a function to refresh it if necessary.
+        Checks if access token is expired,
+        and calls a function to refresh it if necessary.
         """
-        try:
-            timestamp = self._device_data["credentials"]["timestamp"]
-        except (KeyError, TypeError):
-            return
-        timestamp = datetime.strptime(timestamp, "%Y-%m-%d %H:%M:%S.%f")
-        if (datetime.now() - timestamp) > timedelta(hours=1):
-            self._update_spotify_token()
+        timestamp = datetime.strptime(self._timestamp, "%Y-%m-%d %H:%M:%S.%f")
+        if (datetime.now() - timestamp) > timedelta(seconds=self._expires_in):
+            self._refresh_expired_token()
 
-    def _update_spotify_token(self) -> None:
-        """
-        Updates the access token
-        """
-        self._refresh_expired_token()
-
+    # TODO - Add error throwing/handling for when the refresh token doesn't work
     def _refresh_expired_token(self) -> None:
         """
         Helper function for updating the access token.
         """
-
-        url = f"https://accounts.spotify.com/api/token?grant_type=refresh_token&refresh_token={self._refresh_token}"
-
-        payload = {}
-        headers = {
-            "Content-Type": "application/x-www-form-urlencoded",
-            "Authorization": f"Basic {self._encoded_credentials}",
+        url_params = {
+            "grant_type": "refresh_token",
+            "refresh_token": self._refresh_token,
         }
 
-        response = post_to_json_api(url, form_data=payload, headers=headers)
-        self._access_token = response.get("access_token")
+        resp = requests.post(
+            _OAUTH_ACCESS_ENDPOINT,
+            params=url_params,
+            headers={"Authorization": f"Basic {self._encoded_credentials}"},
+        )
+        status_code = resp.status_code
+        r = resp.json()
+
+        if status_code != 200:
+            raise SpotifyError(
+                f'Error {status_code} while creating token: {r["error"]}'
+            )
+
+        r = cast(_SpotifyAuthResponse, r)
+        self._access_token = r["access_token"]
         self._timestamp = str(datetime.now())
 
-    def _store_credentials(self) -> None:
-        cred_dict = self._create_cred_dict()
-        self._store_data(cred_dict)
+    # def _refresh_expired_token(self) -> None:
+    #     """
+    #     Helper function for updating the access token.
+    #     """
 
-    def _create_cred_dict(self) -> Dict[str, str]:
-        cred_dict = {}
-        cred_dict.update(
-            {
-                "access_token": self._access_token,
-                "timestamp": self._timestamp,
-            }
-        )
+    #     url = f"https://accounts.spotify.com/api/token?grant_type=refresh_token&refresh_token={self._refresh_token}"
+
+    #     payload = {}
+    #     headers = {
+    #         "Content-Type": "application/x-www-form-urlencoded",
+    #         "Authorization": f"Basic {self._encoded_credentials}",
+    #     }
+
+    #     response = post_to_json_api(url, form_data=payload, headers=headers)
+    #     self._access_token = response.get("access_token")
+    #     self._timestamp = str(datetime.now())
+
+    def _create_cred_dict(self) -> _SpotifyCredentials:
+        cred_dict: _SpotifyCredentials = {
+            "access_token": self._access_token,
+            "refresh_token": self._refresh_token,
+            "timestamp": self._timestamp,
+            "expires_in": self._expires_in,
+        }
         return cred_dict
 
-    def _store_data(self, data: Dict[str, str]) -> None:
-        new_dict = {"iot_streaming": {"spotify": data}}
-        Query.store_query_data(self._client_id, "iot", new_dict, update_in_place=True)
+    # FIXME: What data could we store, do we need this?
+    def _create_data_dict(self) -> _SpotifyData:
+        data_dict: _SpotifyData = {
+            "tbd": "tbd",
+        }
+        return data_dict
 
-    def _store_credentials(self) -> None:
+    def _store_data_and_credentials(self) -> None:
         cred_dict = self._create_cred_dict()
-        spotify_dict = {}
-        spotify_dict["credentials"] = cred_dict
-        self._store_data(spotify_dict)
+        data_dict = self._create_data_dict()
+        sonos_dict: SpotifyDeviceData = {
+            "credentials": cred_dict,
+            "data": data_dict,
+        }
+        self._store_data(sonos_dict)
 
-    def _create_cred_dict(self) -> Dict[str, str]:
-        cred_dict = {}
-        cred_dict.update(
-            {
-                "access_token": self._access_token,
-                "refresh_token": self._refresh_token,
-                "timestamp": self._timestamp,
-            }
-        )
-        return cred_dict
+    def _store_data(self, data: SpotifyDeviceData) -> None:
+        Query.store_query_data(self._client_id, "spotify", cast(ClientDataDict, data))
 
     def get_song_by_artist(self) -> Optional[str]:
-        song_name = self._song_name.replace(" ", "%20") # FIXME: URL encode this
+        song_name = self._song_name.replace(" ", "%20")  # FIXME: URL encode this
         artist_name = self._artist_name.replace(" ", "%20")
-        url = f"{self._api_url}/search?type=track&q={song_name}+{artist_name}"
+        url = f"{_API_ENDPOINT}/search?type=track&q={song_name}+{artist_name}"
 
         payload = ""
         headers = {
@@ -236,7 +312,7 @@ class SpotifyClient:
     def get_album_by_artist(self) -> Optional[str]:
         album_name = self._album_name.replace(" ", "%20")
         artist_name = self._artist_name.replace(" ", "%20")
-        url = f"{self._api_url}/search?type=album&q={album_name}+{artist_name}"
+        url = f"{_API_ENDPOINT}/search?type=album&q={album_name}+{artist_name}"
 
         payload = ""
         headers = {
@@ -256,7 +332,7 @@ class SpotifyClient:
     def get_first_track_on_album(self) -> Optional[str]:
         album_name = self._album_name.replace(" ", "%20")
         artist_name = self._artist_name.replace(" ", "%20")
-        url = f"{self._api_url}/albums/{self._album_id}/tracks"
+        url = f"{_API_ENDPOINT}/albums/{self._album_id}/tracks"
 
         payload = ""
         headers = {
@@ -275,7 +351,7 @@ class SpotifyClient:
         return self._first_album_track_url
 
     def play_song_on_device(self) -> Union[None, List[Any], Dict[str, Any]]:
-        url = f"{self._api_url}/me/player/play"
+        url = f"{_API_ENDPOINT}/me/player/play"
 
         payload = json.dumps(
             {
@@ -292,7 +368,7 @@ class SpotifyClient:
         return response
 
     def play_album_on_device(self) -> Union[None, List[Any], Dict[str, Any]]:
-        url = f"{self._api_url}/me/player/play"
+        url = f"{_API_ENDPOINT}/me/player/play"
 
         payload = json.dumps(
             {

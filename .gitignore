@@ -161,4 +161,5 @@ resources/*keys.*.json
 *.pcm
 
 # typing-and-error-handling stuff
-simulateapplogin.py
+sonoslogin.py
+spotifylogin.py

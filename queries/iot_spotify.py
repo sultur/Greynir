@@ -70,7 +70,7 @@ def handle_plain_text(q: Query) -> bool:
             print("SONG NAME :", song_name)
             print("ARTIST NAME :", artist_name)
             try:
-                device_data = q.client_data("iot")["iot_streaming"]["spotify"]
+                device_data = q.client_data("spotify")
             except AttributeError:
                 device_data = None
             if "plötuna" in ql:
@@ -86,10 +86,12 @@ def handle_plain_text(q: Query) -> bool:
                     artist_name=artist_name,
                     album_name=album_name or None,
                 )
+                # FIXME: This song_url hotfix is stupid
                 if album_name != None:
                     song_url = spotify_client.get_album_by_artist()
                     song_url = spotify_client.get_first_track_on_album()
                     response = spotify_client.play_song_on_device()
+                    print("RESPONSE :", response)
                 else:
                     song_url = spotify_client.get_song_by_artist()
                     response = spotify_client.play_song_on_device()

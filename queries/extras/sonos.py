@@ -116,7 +116,7 @@ class _SonosData(TypedDict, total=False):
     last_radio_url: Required[str]
 
 
-class _SonosCreds(TypedDict):
+class _SonosCredentials(TypedDict):
     access_token: str
     refresh_token: str
     timestamp: str
@@ -124,7 +124,7 @@ class _SonosCreds(TypedDict):
 
 
 class SonosDeviceData(TypedDict):
-    credentials: _SonosCreds
+    credentials: _SonosCredentials
     data: _SonosData
 
 
@@ -188,6 +188,7 @@ _VOLUME_INCREMENT = 20
 # TODO - Failsafe for responses from playback, volume endpoints. i.e. return apprpriate error message to user.
 # TODO - Add some error when households exceed one
 # TODO - Data as another whatever. (I don't know what I meant here)
+# TODO - Fix the r, resp, response inconsistency
 class SonosClient:
     _encoded_credentials: str = read_api_key("SonosEncodedCredentials")
 
@@ -233,7 +234,7 @@ class SonosClient:
         radio_name: Optional[str] = None,
     ):
         self._client_id: str = client_id
-        self._device_data = device_data
+        self._device_data: SonosDeviceData = device_data
         self._group_name: Optional[str] = group_name
         self._last_group_id: str
         self._radio_name: Optional[str] = radio_name
@@ -248,7 +249,6 @@ class SonosClient:
         self._household_id: str
         self._group_id: str
         self._player_id: str
-        self._code: str
 
         self._check_token_expiration()
 
@@ -267,24 +267,8 @@ class SonosClient:
         """
         timestamp = datetime.strptime(self._timestamp, "%Y-%m-%d %H:%M:%S.%f")
         if (datetime.now() - timestamp) > timedelta(seconds=self._expires_in):
-            self._update_sonos_token()
+            self._refresh_expired_token()
 
-    def _update_sonos_token(self) -> None:
-        """
-        Updates the access token.
-        """
-        self._refresh_expired_token()
-
-        sonos_dict: SonosDeviceData = {
-            "credentials": {
-                "access_token": self._access_token,
-                "refresh_token": self._refresh_token,
-                "timestamp": self._timestamp,
-                "expires_in": self._expires_in,
-            },
-            "data": self._device_data["data"],
-        }
-        self._store_data(sonos_dict)
 
     # TODO - Add error throwing/handling for when the refresh token doesn't work
     def _refresh_expired_token(self) -> None:
@@ -365,7 +349,7 @@ class SonosClient:
             if group_id is None:
                 raise SonosError(
                     f"Could not find group with name {self._group_name}",
-                    f"Fann engan hóp með nafnið {self._group_name}",
+                    f"Fann ekkert Sonos- með nafnið {self._group_name}",
                     "Fann ekki hóp með þessu nafni.",
                 )
             self._group_id = group_id
@@ -398,8 +382,8 @@ class SonosClient:
         assert self._group_name is not None
         return _ICE_TO_ENG_DICT.get(self._group_name, self._group_name)
 
-    def _create_cred_dict(self) -> _SonosCreds:
-        cred_dict: _SonosCreds = {
+    def _create_cred_dict(self) -> _SonosCredentials:
+        cred_dict: _SonosCredentials = {
             "access_token": self._access_token,
             "refresh_token": self._refresh_token,
             "timestamp": self._timestamp,
@@ -466,7 +450,7 @@ class SonosClient:
                 )
                 return response["sessionId"]
             except SonosError:
-                raise SonosError("Could neither create nor join session.")
+                raise SonosError("Could neither create nor join session.", "Ekki tókst nálgast Sonos. Ef önnur spilun er í gangi, slökktu á henni og reyndu aftur.", "Ekki tókst að hefja spilun." )
 
     def play_radio_stream(self, radio_url: Optional[str]) -> None:
         """
