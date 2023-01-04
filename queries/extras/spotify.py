@@ -24,6 +24,7 @@ from typing import Dict, Optional, Union, List, Any, cast
 
 import logging
 from typing_extensions import TypedDict
+from urllib.parse import urlencode as urlencode
 import json
 import requests
 from datetime import datetime, timedelta
@@ -174,6 +175,8 @@ class SpotifyClient:
             },
             "data": {"tbd": "tbd"},
         }
+        print(f"access token: {r['access_token']}")
+        print(f"refresh token: {r['refresh_token']}")
         Query.store_query_data(client_id, "spotify", cast(ClientDataDict, data))
 
     def __init__(
@@ -189,10 +192,10 @@ class SpotifyClient:
         self._device_data: SpotifyDeviceData = device_data
         self._song_name = song_name
         self._artist_name = artist_name
-        self._song_name = song_name
         self._album_name = album_name
         self._song_uri: str
         self._song_url: str
+        self._album_uri: str
         self._album_url: str
         c = self._device_data["credentials"]
         self._access_token: str = c["access_token"]
@@ -231,7 +234,10 @@ class SpotifyClient:
         resp = requests.post(
             _OAUTH_ACCESS_ENDPOINT,
             params=url_params,
-            headers={"Authorization": f"Basic {self._encoded_credentials}"},
+            headers={
+                "Authorization": f"Basic {self._encoded_credentials}",
+                "Content-Type": "application/x-www-form-urlencoded",
+            },
         )
         status_code = resp.status_code
         r = resp.json()
@@ -291,35 +297,49 @@ class SpotifyClient:
         Query.store_query_data(self._client_id, "spotify", cast(ClientDataDict, data))
 
     def get_song_by_artist(self) -> Optional[str]:
-        song_name = self._song_name.replace(" ", "%20")  # FIXME: URL encode this
-        artist_name = self._artist_name.replace(" ", "%20")
-        url = f"{_API_ENDPOINT}/search?type=track&q={song_name}+{artist_name}"
 
-        payload = ""
+        url = f"{_API_ENDPOINT}/search"
+        print(f"url: {url}")
         headers = {
             "Content-Type": "application/json",
             "Authorization": f"Bearer {self._access_token}",
         }
-        response = query_json_api(url, headers)
+        print(f"headers: {headers}")
+        params = {
+            "type": "track",
+            "q": f"{self._song_name} {self._artist_name}",
+            "limit": 1,
+        }
+        print(f"params: {params}")
+
+        response = query_json_api(url, headers=headers, params=params)
+
+        # for track in response["tracks"]["items"]:
+        #     track.pop("available_markets", None)
+        #     track["album"].pop("available_markets", None)
+
+        # # print the response using pretty json
+        # print(json.dumps(response, indent=4, sort_keys=True, skipkeys=True))
+        song_url = response["tracks"]["items"][0]["external_urls"]["spotify"]
+        album_url = response["tracks"]["items"][0]["album"]["external_urls"]["spotify"]
+        song_uri = response["tracks"]["items"][0]["uri"]
         try:
             self._song_url = response["tracks"]["items"][0]["external_urls"]["spotify"]
             self._song_uri = response["tracks"]["items"][0]["uri"]
+            self._album_uri = response["tracks"]["items"][0]["album"]["uri"]
         except IndexError:
             return
 
         return self._song_url
 
-    def get_album_by_artist(self) -> Optional[str]:
-        album_name = self._album_name.replace(" ", "%20")
-        artist_name = self._artist_name.replace(" ", "%20")
-        url = f"{_API_ENDPOINT}/search?type=album&q={album_name}+{artist_name}"
-
-        payload = ""
+    def get_album_by_artist(self) -> None:
+        url = f"{_API_ENDPOINT}/search"
         headers = {
             "Content-Type": "application/json",
             "Authorization": f"Bearer {self._access_token}",
         }
-        response = query_json_api(url, headers)
+        params = {"type": "album", "q": f"{self._album_name} {self._artist_name}"}
+        response = query_json_api(url, headers=headers, params=params)
         try:
             self._album_id = response["albums"]["items"][0]["id"]
             self._album_url = response["albums"]["items"][0]["external_urls"]["spotify"]
@@ -355,7 +375,8 @@ class SpotifyClient:
 
         payload = json.dumps(
             {
-                "context_uri": self._song_uri,
+                "context_uri": self._album_uri,
+                "offset": {"uri": self._song_uri},
             }
         )
         headers = {
@@ -364,6 +385,7 @@ class SpotifyClient:
         }
 
         response = put_to_json_api(url, payload, headers)
+        print(f"Response: {response}")
 
         return response
 
