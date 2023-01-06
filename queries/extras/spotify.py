@@ -22,82 +22,112 @@
 """
 from typing import Dict, Optional, Union, List, Any, cast
 
+
 import logging
-from typing_extensions import TypedDict
+from typing_extensions import TypedDict, Literal, NotRequired
 from urllib.parse import urlencode as urlencode
 import json
 import requests
+from requests.exceptions import HTTPError
 from datetime import datetime, timedelta
 
 from utility import read_api_key
 from queries import query_json_api
 from query import Query, ClientDataDict
 
+JSON_T = Union[None, str, int, float, bool, Dict[str, "JSON_T"], List["JSON_T"]]
 
-def post_to_json_api(
+
+def GET_json(
     url: str,
     *,
-    form_data: Optional[Any] = None,
-    json_data: Optional[Any] = None,
+    params: Optional[Dict[str, Any]] = None,
     headers: Optional[Dict[str, str]] = None,
-) -> Union[None, List[Any], Dict[str, Any]]:
+) -> Dict[str, Any]:
+    """Send a GET request to the URL, expecting a JSON response which is
+    parsed and returned as a Python data structure."""
+
+    # Send request
+    try:
+        r = requests.get(url, params=params, headers=headers)
+    except Exception as e:
+        logging.warning(str(e))
+        raise e
+
+    r.raise_for_status()
+
+    try:
+        res = cast(Dict[str, Any], r.json())
+        return res
+    except Exception as e:
+        logging.warning(f"Error parsing JSON API response: {e}")
+        raise e
+
+
+def POST_json(
+    url: str,
+    *,
+    json_data: JSON_T = None,
+    data: Any = None,
+    headers: Optional[Dict[str, str]] = None,
+) -> Dict[str, Any]:
     """Send a POST request to the URL, expecting a JSON response which is
     parsed and returned as a Python data structure."""
 
     # Send request
     try:
-        r = requests.post(url, data=form_data, json=json_data, headers=headers)
+        r = requests.post(url, json=json_data, data=data, headers=headers)
     except Exception as e:
         logging.warning(str(e))
-        return None
+        raise e
 
-    # Verify that status is OK
-    if r.status_code not in range(200, 300):
-        logging.warning("Received status {0} from API server".format(r.status_code))
-        return None
+    r.raise_for_status()
 
-    # Parse json API response
     try:
-        res = json.loads(r.text)
+        res = cast(Dict[str, Any], r.json())
         return res
     except Exception as e:
-        logging.warning("Error parsing JSON API response: {0}".format(e))
-    return None
+        logging.warning(f"Error parsing JSON API response: {e}")
+        raise e
 
 
-def put_to_json_api(
-    url: str, json_data: Optional[Any] = None, headers: Optional[Dict[str, str]] = None
-) -> Union[None, List[Any], Dict[str, Any]]:
-    """Send a PUT request to the URL, expecting a JSON response which is
+def PUT_json(
+    url: str,
+    *,
+    json_data: JSON_T = None,
+    data: Any = None,
+    headers: Optional[Dict[str, str]] = None,
+) -> None:
+    """Send a POST request to the URL, expecting a JSON response which is
     parsed and returned as a Python data structure."""
 
     # Send request
     try:
-        r = requests.put(url, data=json_data, headers=headers)
+        r = requests.put(url, json=json_data, data=data, headers=headers)
     except Exception as e:
         logging.warning(str(e))
-        return None
+        raise e
 
-    # Verify that status is OK
-    if r.status_code not in range(200, 300):
-        logging.warning("Received status {0} from API server".format(r.status_code))
-        return None
-
-    # Parse json API response
-    try:
-        if r.text:
-            res = json.loads(r.text)
-            return res
-        return {}
-    except Exception as e:
-        logging.warning("Error parsing JSON API response: {0}".format(e))
-    return None
+    r.raise_for_status()
 
 
 class SpotifyError(Exception):
     "Raised when there is an error communicating with the Spotify API."
 
     pass
+
+
+class APIError(Exception):
+    "Raised when there is an error communicating with the API."
+
+    pass
+
+
+class _SpotifyObjectDict(TypedDict):
+    name: Optional[str]
+    uri: NotRequired[str]
+    id: NotRequired[str]
+    url: NotRequired[str]
 
 
 class _SpotifyData(TypedDict):
@@ -139,33 +169,24 @@ class SpotifyClient:
         """
         Create a new access token given a code.
         """
-        print("i'm here")
-
-        url_params = {
+        request_data = {
             "grant_type": "authorization_code",
             "code": code,
             "redirect_uri": f"http://{host}/connect_spotify.api",
         }
-        resp = requests.post(
-            _OAUTH_ACCESS_ENDPOINT,
-            params=url_params,
-            headers={
-                "Authorization": f"Basic {cls._encoded_credentials}",
-                "Content-Type": "application/x-www-form-urlencoded",
-            },
-        )
-        status_code = resp.status_code
-        print("entire", resp)
-        print("text ", resp.text)
-        print("json ", resp.json())
-        r = resp.json()
-
-        if status_code != 200:
-            raise SpotifyError(
-                f'Error {status_code} while creating token: {r["error"]}'
+        try:
+            resp = POST_json(
+                _OAUTH_ACCESS_ENDPOINT,
+                data=request_data,
+                headers={
+                    "Authorization": f"Basic {cls._encoded_credentials}",
+                    "Content-Type": "application/x-www-form-urlencoded",
+                },
             )
+        except Exception as e:
+            raise SpotifyError(f"Error creating token: {e}")
 
-        r = cast(_SpotifyAuthResponse, r)
+        r = cast(_SpotifyAuthResponse, resp)
         data: SpotifyDeviceData = {
             "credentials": {
                 "timestamp": str(datetime.now()),
@@ -175,8 +196,6 @@ class SpotifyClient:
             },
             "data": {"tbd": "tbd"},
         }
-        print(f"access token: {r['access_token']}")
-        print(f"refresh token: {r['refresh_token']}")
         Query.store_query_data(client_id, "spotify", cast(ClientDataDict, data))
 
     def __init__(
@@ -184,19 +203,17 @@ class SpotifyClient:
         device_data: SpotifyDeviceData,
         client_id: str,
         # FIXME: They cannot all be None
-        song_name: Optional[str] = None,
-        artist_name: Optional[str] = None,
         album_name: Optional[str] = None,
+        track_name: Optional[str] = None,
+        album_or_track_name: Optional[str] = None,
+        artist_name: Optional[str] = None,
     ):
         self._client_id: str = client_id
         self._device_data: SpotifyDeviceData = device_data
-        self._song_name = song_name
-        self._artist_name = artist_name
-        self._album_name = album_name
-        self._song_uri: str
-        self._song_url: str
-        self._album_uri: str
-        self._album_url: str
+        self._track: _SpotifyObjectDict = {"name": track_name}
+        self._album: _SpotifyObjectDict = {"name": album_name}
+        self._artist: _SpotifyObjectDict = {"name": artist_name}
+        self._album_or_track_name = album_or_track_name
         c = self._device_data["credentials"]
         self._access_token: str = c["access_token"]
         self._refresh_token: str = c["refresh_token"]
@@ -209,6 +226,19 @@ class SpotifyClient:
             "Content-Type": "application/json",
             "Authorization": f"Bearer {self._access_token}",
         }
+
+        if self._album_or_track_name is not None:
+            self._get_album_or_track()
+        elif self._album["name"] is not None:
+            self._search_spotify(
+                q=self._album["name"], artist=self._artist["name"], object_type="album"
+            )
+        elif self._track["name"] is not None:
+            self._search_spotify(
+                q=self._track["name"], artist=self._artist["name"], object_type="track"
+            )
+        else:
+            raise SpotifyError("No track or album name provided.")
 
         self._store_data_and_credentials()
 
@@ -226,28 +256,25 @@ class SpotifyClient:
         """
         Helper function for updating the access token.
         """
-        url_params = {
+        request_data = {
             "grant_type": "refresh_token",
             "refresh_token": self._refresh_token,
         }
 
-        resp = requests.post(
-            _OAUTH_ACCESS_ENDPOINT,
-            params=url_params,
-            headers={
-                "Authorization": f"Basic {self._encoded_credentials}",
-                "Content-Type": "application/x-www-form-urlencoded",
-            },
-        )
-        status_code = resp.status_code
-        r = resp.json()
-
-        if status_code != 200:
-            raise SpotifyError(
-                f'Error {status_code} while creating token: {r["error"]}'
+        try:
+            resp = POST_json(
+                _OAUTH_ACCESS_ENDPOINT,
+                data=request_data,
+                headers={
+                    "Authorization": f"Basic {self._encoded_credentials}",
+                    "Content-Type": "application/x-www-form-urlencoded",
+                },
             )
+        except Exception as e:
+            raise SpotifyError(f"Error refreshing token: {e}")
 
-        r = cast(_SpotifyAuthResponse, r)
+        r = cast(_SpotifyAuthResponse, resp)
+
         self._access_token = r["access_token"]
         self._timestamp = str(datetime.now())
 
@@ -264,7 +291,7 @@ class SpotifyClient:
     #         "Authorization": f"Basic {self._encoded_credentials}",
     #     }
 
-    #     response = post_to_json_api(url, form_data=payload, headers=headers)
+    #     response = post_to_json_api(url, form_data=payload, headers=self._headers)
     #     self._access_token = response.get("access_token")
     #     self._timestamp = str(datetime.now())
 
@@ -296,112 +323,116 @@ class SpotifyClient:
     def _store_data(self, data: SpotifyDeviceData) -> None:
         Query.store_query_data(self._client_id, "spotify", cast(ClientDataDict, data))
 
-    def get_song_by_artist(self) -> Optional[str]:
+    # def _get_album_or_track(self) -> None:
 
+    def _search_spotify(
+        self,
+        q: str,
+        object_type: Literal["album", "artist", "track"],
+        # album: Optional[str] = None,
+        artist: Optional[str] = None,
+    ) -> None:
+        """
+        Search Spotify for an album, artist, or track and
+        update the instance variables accordingly.
+        """
+        # Restricting the search results in issues with, e.g., artists associated with a song that are not the main artist. "Jumpman by Future"
+        # if album is not None:
+        #     q += f" album:{album}"
+        # if artist is not None:
+        #     q += f" artist:{artist}"
         url = f"{_API_ENDPOINT}/search"
-        print(f"url: {url}")
-        headers = {
-            "Content-Type": "application/json",
-            "Authorization": f"Bearer {self._access_token}",
-        }
-        print(f"headers: {headers}")
+        if artist is not None:
+            q += f" {self._artist['name']}"
         params = {
-            "type": "track",
-            "q": f"{self._song_name} {self._artist_name}",
-            "limit": 1,
+            "type": object_type,
+            "q": q,
+            "limit": "1",
         }
-        print(f"params: {params}")
 
-        response = query_json_api(url, headers=headers, params=params)
+        key = f"{object_type}s"
 
-        # for track in response["tracks"]["items"]:
-        #     track.pop("available_markets", None)
-        #     track["album"].pop("available_markets", None)
-
-        # # print the response using pretty json
-        # print(json.dumps(response, indent=4, sort_keys=True, skipkeys=True))
-        song_url = response["tracks"]["items"][0]["external_urls"]["spotify"]
-        album_url = response["tracks"]["items"][0]["album"]["external_urls"]["spotify"]
-        song_uri = response["tracks"]["items"][0]["uri"]
         try:
-            self._song_url = response["tracks"]["items"][0]["external_urls"]["spotify"]
-            self._song_uri = response["tracks"]["items"][0]["uri"]
-            self._album_uri = response["tracks"]["items"][0]["album"]["uri"]
-        except IndexError:
-            return
+            response = GET_json(url, headers=self._headers, params=params)
+        except Exception as e:
+            raise SpotifyError(f"Error during search GET request to Spotify: {e}")
 
-        return self._song_url
-
-    def get_album_by_artist(self) -> None:
-        url = f"{_API_ENDPOINT}/search"
-        headers = {
-            "Content-Type": "application/json",
-            "Authorization": f"Bearer {self._access_token}",
-        }
-        params = {"type": "album", "q": f"{self._album_name} {self._artist_name}"}
-        response = query_json_api(url, headers=headers, params=params)
         try:
-            self._album_id = response["albums"]["items"][0]["id"]
-            self._album_url = response["albums"]["items"][0]["external_urls"]["spotify"]
-            self._album_uri = response["albums"]["items"][0]["uri"]
+            result_object = response[key]["items"][0]
         except IndexError:
-            return
+            raise SpotifyError(
+                f"Could not find {object_type} matching search criteria on Spotify."
+            )
 
-        return self._album_url
-
-    def get_first_track_on_album(self) -> Optional[str]:
-        album_name = self._album_name.replace(" ", "%20")
-        artist_name = self._artist_name.replace(" ", "%20")
-        url = f"{_API_ENDPOINT}/albums/{self._album_id}/tracks"
-
-        payload = ""
-        headers = {
-            "Content-Type": "application/json",
-            "Authorization": f"Bearer {self._access_token}",
-        }
-        response = query_json_api(url, headers)
         try:
-            self._song_uri = response["items"][0]["uri"]
-            self._first_album_track_url = response["items"][0]["external_urls"][
-                "spotify"
-            ]
+            if object_type == "track":
+                result_dict = {
+                    "name": result_object["name"],
+                    "uri": result_object["uri"],
+                    "url": result_object["external_urls"]["spotify"],
+                }
+                self._track.update(result_dict)
+                self._album["uri"] = result_object["album"]["uri"]
+            elif object_type == "album":
+                result_dict = {
+                    "name": result_object["name"],
+                    "uri": result_object["uri"],
+                    "id": result_object["id"],
+                }
+                self._album.update(result_dict)
+                self._get_first_track_on_album()
+        except KeyError:
+            raise SpotifyError(f"Spotify search result object malformed.")
+
+    def _get_first_track_on_album(self) -> None:
+        """
+        Find the url of the first track on an album.
+        """
+        url = f"{_API_ENDPOINT}/albums/{self._album['id']}/tracks"
+        params = {"limit": "1"}
+        try:
+            response = GET_json(url, headers=self._headers, params=params)
+        except Exception as e:
+            raise SpotifyError(
+                f"Error in GET request for first album track to Spotify: {e}"
+            )
+
+        try:
+            self._track["url"] = response["items"][0]["external_urls"]["spotify"]
         except IndexError:
-            return
+            # FIXME: Can this happen?
+            # FIXME: Clean if it does.
+            raise SpotifyError("Error retrieving first track on album from Spotify.")
 
-        return self._first_album_track_url
-
-    def play_song_on_device(self) -> Union[None, List[Any], Dict[str, Any]]:
+    def play(self) -> None:
         url = f"{_API_ENDPOINT}/me/player/play"
-
-        payload = json.dumps(
-            {
-                "context_uri": self._album_uri,
-                "offset": {"uri": self._song_uri},
-            }
-        )
-        headers = {
-            "Content-Type": "application/json",
-            "Authorization": f"Bearer {self._access_token}",
+        # FIXME: Kind of embarrassing, tbhhh. Shouldn't rely on the existence of a variable.
+        offset: Dict[str, str]
+        if self._track["name"] is not None:
+            offset = {"uri": self._track["uri"]}
+        elif self._album["name"] is not None:
+            offset = {"position": "0"}
+        # FIXME: Shouldn't include this
+        else:
+            raise SpotifyError("No track or album specified to play on Spotify.")
+        payload = {
+            "context_uri": self._album["uri"],
+            "offset": offset,
         }
 
-        response = put_to_json_api(url, payload, headers)
-        print(f"Response: {response}")
+        try:
+            PUT_json(url, json_data=payload, headers=self._headers)
+        except HTTPError as e:
+            raise SpotifyError(f"Error in PUT request playing album on Spotify: {e}")
 
-        return response
+    @property
+    def album_name(self) -> str:
+        return self._album["name"]
 
-    def play_album_on_device(self) -> Union[None, List[Any], Dict[str, Any]]:
-        url = f"{_API_ENDPOINT}/me/player/play"
+    @property
+    def track_name(self) -> str:
+        return self._track["name"]
 
-        payload = json.dumps(
-            {
-                "context_uri": self._album_uri,
-            }
-        )
-        headers = {
-            "Content-Type": "application/json",
-            "Authorization": f"Bearer {self._access_token}",
-        }
-
-        response = put_to_json_api(url, payload, headers)
-
-        return response
+    @property
+    def track_url(self) -> str:
+        return self._track["url"]

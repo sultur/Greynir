@@ -480,7 +480,7 @@ class QueryTree(Tree):
                     "Processing query tree",
                     query_tree.string_self(),
                     "in module",
-                    processor['__name__'],
+                    processor["__name__"],
                 )
                 # Is the processor interested in the root nonterminal
                 # of this query tree?

@@ -269,7 +269,6 @@ class SonosClient:
         if (datetime.now() - timestamp) > timedelta(seconds=self._expires_in):
             self._refresh_expired_token()
 
-
     # TODO - Add error throwing/handling for when the refresh token doesn't work
     def _refresh_expired_token(self) -> None:
         """
@@ -299,11 +298,9 @@ class SonosClient:
         """
         Sets the households, and household ID for the user
         """
-        r = query_json_api(_HOUSEHOLDS_ENDPOINT, headers=self._headers)
-
         response = cast(
-            _SonosHouseholdResponse,
-            r,
+            Optional[_SonosHouseholdResponse],
+            query_json_api(_HOUSEHOLDS_ENDPOINT, headers=self._headers),
         )
         self._households = response["households"]
         # Need at least one household.
@@ -325,7 +322,7 @@ class SonosClient:
         """
         url = f"{_HOUSEHOLDS_ENDPOINT}/{self._household_id}/groups"
 
-        response = cast(_SonosGroupResponse, query_json_api(url, headers=self._headers))
+        response = cast(Optional[_SonosGroupResponse], query_json_api(url, headers=self._headers))
 
         self._set_groups(response)
         self._set_player_id(response)
@@ -450,7 +447,11 @@ class SonosClient:
                 )
                 return response["sessionId"]
             except SonosError:
-                raise SonosError("Could neither create nor join session.", "Ekki tókst nálgast Sonos. Ef önnur spilun er í gangi, slökktu á henni og reyndu aftur.", "Ekki tókst að hefja spilun." )
+                raise SonosError(
+                    "Could neither create nor join session.",
+                    "Ekki tókst nálgast Sonos. Ef önnur spilun er í gangi, slökktu á henni og reyndu aftur.",
+                    "Ekki tókst að hefja spilun.",
+                )
 
     def play_radio_stream(self, radio_url: Optional[str]) -> None:
         """

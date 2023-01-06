@@ -41,7 +41,7 @@ import re
 from reynir.bindb import GreynirBin
 
 from query import Query
-from queries.extras.spotify import SpotifyClient, SpotifyDeviceData
+from queries.extras.spotify import SpotifyClient, SpotifyDeviceData, SpotifyError
 from queries import gen_answer
 
 
@@ -61,7 +61,7 @@ _SPOTIFY_REGEXES = [
     # r"^spilaðu ([\w|\s]+) á spotify",
     r"^spilaðu plötuna (?P<album>[\w|\s]+) með (?P<artist>[\w|\s]+)$",
     r"^spilaðu lagið (?P<song>[\w|\s]+) með (?P<artist>[\w|\s]+)$",
-    r"^spilaðu (?P<album_or_song_name>[\w|\s]+) með (?P<artist>[\w|\s]+)$",
+    r"^spilaðu (?P<album_or_track_name>[\w|\s]+) með (?P<artist>[\w|\s]+)$",
     # r"^spilaðu plötuna ([\w|\s]+)$ með ([\w|\s]+)$ á spotify$",
 ]
 
@@ -78,45 +78,33 @@ def handle_plain_text(q: Query) -> bool:
         m = re.search(rx, ql, flags=re.IGNORECASE)
         if m:
             gd = m.groupdict()
-            song_name = gd.get("song")
-            artist_name = gd.get("artist")
             album_name = gd.get("album")
-            album_or_song_name = gd.get("album_or_song_name")
+            track_name = gd.get("song")
+            album_or_track_name = gd.get("album_or_track_name")
+            artist_name = gd.get("artist")
             # with GreynirBin.get_db() as db:
-            #     db.lookup("song_name", auto_uppercase=True)
-            print("SONG NAME: ", song_name)
-            print("ARTIST NAME: ", artist_name)
-            print("ALBUM NAME: ", album_name)
-            print("ALBUM OR SONG NAME: ", album_or_song_name)
+            #     db.lookup("track_name", auto_uppercase=True)
             cd = q.client_data("spotify")
             if cd is None:
                 answer = "Það vantar að tengja Spotify aðgang."
                 q.set_answer(*gen_answer(answer))
-                print("NO DEVICE DATA")
                 return True
-            else:
-                print("DEVICE DATA GOTTEN: ", cd)
             device_data = cast(SpotifyDeviceData, cd)
             spotify_client = SpotifyClient(
                 device_data,
                 q.client_id,
-                song_name=song_name,
-                artist_name=artist_name,
                 album_name=album_name,
+                album_or_track_name=album_or_track_name,
+                track_name=track_name,
+                artist_name=artist_name,
             )
-            # FIXME: This song_url hotfix is stupid
-            if album_name != None:
-                spotify_client.get_album_by_artist()
-                song_url = spotify_client.get_first_track_on_album()
-                response = spotify_client.play_song_on_device()
-                print("RESPONSE :", response)
-            else:
-                song_url = spotify_client.get_song_by_artist()
-                response = spotify_client.play_song_on_device()
-
-            answer = "Ég set það í gang."
-            if response is None:
-                q.set_url(song_url)
+            answer = (
+                f"Ég kveiki á {spotify_client.track_name or spotify_client.album_name}."
+            )
+            try:
+                spotify_client.play()
+            except SpotifyError:
+                q.set_url(spotify_client.track_url)
             q.set_answer({"answer": answer}, answer, "")
             return True
     return False
