@@ -20,13 +20,12 @@
     Class which encapsulates communication with the Spotify API.
 
 """
-from typing import Dict, Optional, Union, List, Any, cast
+from typing import Dict, Optional, Union, List, Any, cast, Tuple
 
 
 import logging
 from typing_extensions import TypedDict, Literal, NotRequired
 from urllib.parse import urlencode as urlencode
-import json
 import requests
 from requests.exceptions import HTTPError
 from datetime import datetime, timedelta
@@ -123,11 +122,69 @@ class APIError(Exception):
     pass
 
 
+class _SpotifyResultObject(TypedDict):
+    name: str
+    context_uri: str
+    url: str
+    offset: Optional[Dict[str, Union[int, str]]]
+    artist: Optional[str]
+
+
+class _SpotifyTracksObject(TypedDict):
+    name: str
+    uri: str
+
+
+class _SpotifyAlbumsObject(TypedDict):
+    name: str
+    uri: str
+
+
+class _SpotifyArtistsObject(TypedDict):
+    name: str
+    uri: str
+
+
+class _SpotifyPlaylistsObject(TypedDict):
+    name: str
+    uri: str
+
+
+class _SpotifyTracksResponseDict(TypedDict):
+    items: List[_SpotifyTracksObject]
+
+
+class _SpotifyAlbumsResponseDict(TypedDict):
+    items: List[_SpotifyAlbumsObject]
+
+
+class _SpotifyArtistsResponseDict(TypedDict):
+    items: List[_SpotifyArtistsObject]
+
+
+class _SpotifyPlaylistsResponseDict(TypedDict):
+    items: List[_SpotifyPlaylistsObject]
+
+
+class _SpotifySearchResponse(TypedDict):
+    tracks: _SpotifyTracksResponseDict
+    albums: _SpotifyAlbumsResponseDict
+    artists: _SpotifyArtistsResponseDict
+    playlists: _SpotifyPlaylistsResponseDict
+
+
 class _SpotifyObjectDict(TypedDict):
-    name: Optional[str]
-    uri: NotRequired[str]
-    id: NotRequired[str]
+    name: str
+    uri: str
+    id: str
     url: NotRequired[str]
+
+
+class _SpotifySearchObject(TypedDict):
+    album: NotRequired[_SpotifyObjectDict]
+    track: NotRequired[_SpotifyObjectDict]
+    artist: NotRequired[_SpotifyObjectDict]
+    playlist: NotRequired[_SpotifyObjectDict]
 
 
 class _SpotifyData(TypedDict):
@@ -156,6 +213,8 @@ class _SpotifyAuthResponse(TypedDict):
 
 _OAUTH_ACCESS_ENDPOINT = "https://accounts.spotify.com/api/token"
 _API_ENDPOINT = "https://api.spotify.com/v1"
+
+_object_types = ("track", "album", "track_or_album", "playlist", "artist", "anything")
 
 # TODO Find a better way to play albums
 # TODO - Remove debug print statements
@@ -202,18 +261,12 @@ class SpotifyClient:
         self,
         device_data: SpotifyDeviceData,
         client_id: str,
-        # FIXME: They cannot all be None
-        album_name: Optional[str] = None,
-        track_name: Optional[str] = None,
-        album_or_track_name: Optional[str] = None,
-        artist_name: Optional[str] = None,
     ):
         self._client_id: str = client_id
         self._device_data: SpotifyDeviceData = device_data
-        self._track: _SpotifyObjectDict = {"name": track_name}
-        self._album: _SpotifyObjectDict = {"name": album_name}
-        self._artist: _SpotifyObjectDict = {"name": artist_name}
-        self._album_or_track_name = album_or_track_name
+        self._name: str
+        self._object_type: str
+        self._url: str
         c = self._device_data["credentials"]
         self._access_token: str = c["access_token"]
         self._refresh_token: str = c["refresh_token"]
@@ -226,19 +279,6 @@ class SpotifyClient:
             "Content-Type": "application/json",
             "Authorization": f"Bearer {self._access_token}",
         }
-
-        if self._album_or_track_name is not None:
-            self._get_album_or_track()
-        elif self._album["name"] is not None:
-            self._search_spotify(
-                q=self._album["name"], artist=self._artist["name"], object_type="album"
-            )
-        elif self._track["name"] is not None:
-            self._search_spotify(
-                q=self._track["name"], artist=self._artist["name"], object_type="track"
-            )
-        else:
-            raise SpotifyError("No track or album name provided.")
 
         self._store_data_and_credentials()
 
@@ -278,23 +318,6 @@ class SpotifyClient:
         self._access_token = r["access_token"]
         self._timestamp = str(datetime.now())
 
-    # def _refresh_expired_token(self) -> None:
-    #     """
-    #     Helper function for updating the access token.
-    #     """
-
-    #     url = f"https://accounts.spotify.com/api/token?grant_type=refresh_token&refresh_token={self._refresh_token}"
-
-    #     payload = {}
-    #     headers = {
-    #         "Content-Type": "application/x-www-form-urlencoded",
-    #         "Authorization": f"Basic {self._encoded_credentials}",
-    #     }
-
-    #     response = post_to_json_api(url, form_data=payload, headers=self._headers)
-    #     self._access_token = response.get("access_token")
-    #     self._timestamp = str(datetime.now())
-
     def _create_cred_dict(self) -> _SpotifyCredentials:
         cred_dict: _SpotifyCredentials = {
             "access_token": self._access_token,
@@ -327,68 +350,128 @@ class SpotifyClient:
 
     def _search_spotify(
         self,
-        q: str,
-        object_type: Literal["album", "artist", "track"],
-        # album: Optional[str] = None,
-        artist: Optional[str] = None,
-    ) -> None:
+        *,
+        track: Optional[str],
+        album: Optional[str],
+        track_or_album: Optional[str],
+        playlist: Optional[str],
+        artist: Optional[str],
+        anything: Optional[str],
+        object_types: Tuple[Literal["album", "artist", "track", "playlist"], ...],
+    ) -> _SpotifyResultObject:
         """
-        Search Spotify for an album, artist, or track and
-        update the instance variables accordingly.
+        Search Spotify for an album, artist, playlist or track returning the result
+        and updating the instance accordingly.
         """
-        # Restricting the search results in issues with, e.g., artists associated with a song that are not the main artist. "Jumpman by Future"
-        # if album is not None:
-        #     q += f" album:{album}"
-        # if artist is not None:
-        #     q += f" artist:{artist}"
+        args = (track, album, track_or_album, playlist, artist, anything)
+        assert any(c is not None for c in args)
+        if artist is not None and ({"playlist"}.intersection(object_types)):
+            raise SpotifyError(f"Cannot search for a playlist by a specific artist.")
         url = f"{_API_ENDPOINT}/search"
-        if artist is not None:
-            q += f" {self._artist['name']}"
+        # join the object types with a comma separating them
+        object_type_string = ",".join(object_types)
+        print(f"object_type_string = {object_type_string}")
         params = {
-            "type": object_type,
-            "q": q,
+            "type": ",".join(object_types),
+            "q": " ".join(w for w in args if w is not None),
             "limit": "1",
         }
 
-        key = f"{object_type}s"
-
+        print(f"params = {params}")
         try:
-            response = GET_json(url, headers=self._headers, params=params)
+            response = cast(
+                _SpotifySearchResponse,
+                GET_json(url, headers=self._headers, params=params),
+            )
         except Exception as e:
             raise SpotifyError(f"Error during search GET request to Spotify: {e}")
 
-        try:
-            result_object = response[key]["items"][0]
-        except IndexError:
+        search_object: _SpotifySearchObject = {}
+        for ot in object_types:
+            # FIXME: Ask Logi what to do here
+            items = response[f"{ot}s"]["items"]
+            if items:
+                search_object[ot] = items[0]
+        if not search_object:
             raise SpotifyError(
-                f"Could not find {object_type} matching search criteria on Spotify."
+                f"Could not find {' or '.join(object_types)} matching search criteria on Spotify."
             )
 
-        try:
-            if object_type == "track":
-                result_dict = {
-                    "name": result_object["name"],
-                    "uri": result_object["uri"],
-                    "url": result_object["external_urls"]["spotify"],
-                }
-                self._track.update(result_dict)
-                self._album["uri"] = result_object["album"]["uri"]
-            elif object_type == "album":
-                result_dict = {
-                    "name": result_object["name"],
-                    "uri": result_object["uri"],
-                    "id": result_object["id"],
-                }
-                self._album.update(result_dict)
-                self._get_first_track_on_album()
-        except KeyError:
-            raise SpotifyError(f"Spotify search result object malformed.")
+        # For each result object, use levenshtein distance to match the name to the query string and return the type of the best match as the string correct_type and the resulting object as the _SpotifySearchResult correct_object
+        correct_type, correct_name, best_distance = None, None, float("inf")
+        # FIXME: Temporary. Both below and above
+        query_string = " ".join(w for w in args if w is not None)
 
-    def _get_first_track_on_album(self) -> None:
+        for object_type, obj in search_object.items():
+            # FIXME: Would rather avoid this cast statement
+            candidate_name = cast(_SpotifyObjectDict, obj)["name"]
+            candidate_distance = self._levenshtein_distance(
+                candidate_name, query_string
+            )
+            if correct_type is None or candidate_distance < best_distance:
+                correct_type, correct_name, best_distance = (
+                    object_type,
+                    candidate_name,
+                    candidate_distance,
+                )
+            print(f"candidate_name = {candidate_name}")
+            print(f"candidate_distance = {candidate_distance}")
+            print(f"correct_type = {correct_type}")
+            print(f"correct_name = {correct_name}")
+            print(f"best_distance = {best_distance}")
+
+        # FIXME: These typing errors below
+        correct_object = self._fill_result_object(
+            search_object[correct_type], correct_type
+        )
+        self._object_type = correct_type
+        print("Did I even make it here?")
+        self._name = correct_name
+        self._url = correct_object["url"]
+        return correct_object
+
+    def _fill_result_object(
+        self,
+        search_object: _SpotifyObjectDict,
+        object_type: Literal["album", "artist", "track", "playlist"],
+    ) -> _SpotifyResultObject:
+        item_uri = search_object["uri"]
+        id = search_object["id"]
+
+        name = search_object["name"]
+        context_uri = (
+            search_object["album"]["uri"] if object_type is "track" else item_uri
+        )
+        url = (
+            search_object["external_urls"]["spotify"]
+            if object_type is "track"
+            else self._get_song_url(id=id, object_type=object_type)
+        )
+        offset = {"uri": item_uri} if object_type is "track" else {"position": 0}
+        artist = (
+            search_object["artists"][0]["name"]
+            if object_type in ["track", "artist"]
+            else None
+        )
+        result: _SpotifyResultObject = {
+            "name": name,
+            "context_uri": context_uri,
+            "url": url,
+            "offset": offset,
+            "artist": artist,
+        }
+        return result
+
+    def _get_song_url(
+        self, id: str, object_type: Literal["album", "playlist", "artist"]
+    ) -> str:
         """
-        Find the url of the first track on an album.
+        Find the url of the first track on an album, playlist or by an artist
         """
-        url = f"{_API_ENDPOINT}/albums/{self._album['id']}/tracks"
+        if object_type == "album":
+            url = f"{_API_ENDPOINT}/albums/{id}/tracks"
+        elif object_type == "playlist":
+            url = f"{_API_ENDPOINT}/playlists/{id}/tracks"
         params = {"limit": "1"}
         try:
             response = GET_json(url, headers=self._headers, params=params)
@@ -398,27 +481,44 @@ class SpotifyClient:
             )
 
         try:
-            self._track["url"] = response["items"][0]["external_urls"]["spotify"]
+            return response["items"][0]["external_urls"]["spotify"]
         except IndexError:
             # FIXME: Can this happen?
             # FIXME: Clean if it does.
             raise SpotifyError("Error retrieving first track on album from Spotify.")
 
-    def play(self) -> None:
+    def play(
+        self,
+        *,
+        track: Optional[str],
+        album: Optional[str],
+        track_or_album: Optional[str],
+        playlist: Optional[str],
+        artist: Optional[str],
+        anything: Optional[str],
+        object_types: Tuple[Literal["album", "artist", "track", "playlist"], ...],
+    ) -> None:
+        """
+        Searches Spotify for the desired object and plays it.
+        """
+        print("attempted to play")
+        search_result = self._search_spotify(
+            track=track,
+            album=album,
+            track_or_album=track_or_album,
+            playlist=playlist,
+            artist=artist,
+            anything=anything,
+            object_types=object_types,
+        )
+        print(f"search_result = {search_result}")
+
         url = f"{_API_ENDPOINT}/me/player/play"
-        # FIXME: Kind of embarrassing, tbhhh. Shouldn't rely on the existence of a variable.
-        offset: Dict[str, str]
-        if self._track["name"] is not None:
-            offset = {"uri": self._track["uri"]}
-        elif self._album["name"] is not None:
-            offset = {"position": "0"}
-        # FIXME: Shouldn't include this
-        else:
-            raise SpotifyError("No track or album specified to play on Spotify.")
         payload = {
-            "context_uri": self._album["uri"],
-            "offset": offset,
+            "context_uri": search_result["context_uri"],
         }
+        if "offset" in search_result:
+            payload["offset"] = search_result["offset"]
 
         try:
             PUT_json(url, json_data=payload, headers=self._headers)
@@ -427,12 +527,50 @@ class SpotifyClient:
 
     @property
     def album_name(self) -> str:
-        return self._album["name"]
+        if self._object_type != "album":
+            raise SpotifyError("Album not target object of query.")
+        return self._name
 
     @property
     def track_name(self) -> str:
-        return self._track["name"]
+        print(self._name)
+        if self._object_type != "track":
+            raise SpotifyError("Track not target object of query.")
+        return self._name
+
+    @property
+    def artist_name(self) -> str:
+        if self._object_type != "artist":
+            raise SpotifyError("Artist not target object of query.")
+        return self._name
+
+    @property
+    def playlist_name(self) -> str:
+        if self._object_type != "playlist":
+            raise SpotifyError("Playlist not target object of query.")
+        return self._name
 
     @property
     def track_url(self) -> str:
-        return self._track["url"]
+        if self._url is None:
+            raise SpotifyError("No url found in Spotify class instanec.")
+        return self._url
+
+    def _levenshtein_distance(self, a: str, b: str) -> int:
+        """
+        Calculate the Levenstein distance between two strings.
+        """
+        if len(a) < len(b):
+            return self._levenshtein_distance(b, a)
+        if len(b) == 0:
+            return len(a)
+        previous_row = range(len(b) + 1)
+        for i, c1 in enumerate(a):
+            current_row = [i + 1]
+            for j, c2 in enumerate(b):
+                insertions = previous_row[j + 1] + 1
+                deletions = current_row[j] + 1
+                substitutions = previous_row[j] + (c1 != c2)
+                current_row.append(min(insertions, deletions, substitutions))
+            previous_row = current_row
+        return previous_row[-1]
