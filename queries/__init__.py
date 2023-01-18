@@ -44,6 +44,7 @@ import json
 import re
 import locale
 from urllib.parse import urlencode
+from requests.exceptions import HTTPError
 from functools import lru_cache
 from xml.dom import minidom  # type: ignore
 
@@ -66,6 +67,7 @@ from utility import (
 # Type definitions
 AnswerTuple = Tuple[Dict[str, str], str, str]
 JsonResponse = Union[None, List[Any], Dict[str, Any]]
+JSON_T = Union[None, str, int, float, bool, Dict[str, "JSON_T"], List["JSON_T"]]
 
 MONTH_ABBREV_ORDERED: Sequence[str] = (
     "jan",
@@ -429,6 +431,93 @@ def icequote(s: str) -> str:
 def gen_answer(a: str) -> AnswerTuple:
     """Convenience function for query modules: response, answer, voice answer"""
     return dict(answer=a), a, a
+
+
+def GET_json(
+    url: str,
+    *,
+    params: Optional[Dict[str, Any]] = None,
+    headers: Optional[Dict[str, str]] = None,
+) -> Dict[str, Any]:
+    """Send a GET request to the URL, expecting a JSON response which is
+    parsed and returned as a Python data structure."""
+
+    # Send request
+    try:
+        r = requests.get(url, params=params, headers=headers)
+    except Exception as e:
+        logging.warning(str(e))
+        raise e
+
+    try:
+        r.raise_for_status()
+    except HTTPError as e:
+        logging.warning(str(e))
+        logging.warning(e.response.json())
+        raise e
+
+    try:
+        res = cast(Dict[str, Any], r.json())
+        return res
+    except Exception as e:
+        logging.warning(f"Error parsing JSON API response: {e}")
+        raise e
+
+
+def POST_json(
+    url: str,
+    *,
+    json_data: JSON_T = None,
+    data: Any = None,
+    headers: Optional[Dict[str, str]] = None,
+) -> Dict[str, Any]:
+    """Send a POST request to the URL, expecting a JSON response which is
+    parsed and returned as a Python data structure."""
+
+    # Send request
+    try:
+        r = requests.post(url, json=json_data, data=data, headers=headers)
+    except Exception as e:
+        logging.warning(str(e))
+        raise e
+
+    try:
+        r.raise_for_status()
+    except HTTPError as e:
+        logging.warning(str(e))
+        logging.warning(e.response.json())
+        raise e
+
+    try:
+        res = cast(Dict[str, Any], r.json())
+        return res
+    except Exception as e:
+        logging.warning(f"Error parsing JSON API response: {e}")
+        raise e
+
+
+def PUT(
+    url: str,
+    *,
+    json_data: JSON_T = None,
+    data: Any = None,
+    headers: Optional[Dict[str, str]] = None,
+) -> None:
+    """Send a POST request to the URL."""
+
+    # Send request
+    try:
+        r = requests.put(url, json=json_data, data=data, headers=headers)
+    except Exception as e:
+        logging.warning(str(e))
+        raise e
+
+    try:
+        r.raise_for_status()
+    except HTTPError as e:
+        logging.warning(str(e))
+        logging.warning(e.response.json())
+        raise e
 
 
 def query_json_api(

@@ -33,9 +33,10 @@
 with GreynirBin.get_db() as db:
         db.lookup("ordid") #output er tupla, ef seinna elementid er ekki tomur listi tha er thetta islenskt
 """
-from typing import cast, Optional
+from typing import cast, Optional, Dict, List
 
 import random
+from typing_extensions import TypedDict
 import re
 import logging
 
@@ -46,6 +47,11 @@ from queries.extras.spotify import SpotifyClient, SpotifyDeviceData, SpotifyErro
 from queries import gen_answer
 
 
+class _SpotifyRegexObject(TypedDict):
+    target_types: set[str]
+    rx: List[str]
+
+
 def help_text(lemma: str) -> str:
     """Help text to return when query.py is unable to parse a query but
     one of the above lemmas is found in it"""
@@ -54,17 +60,32 @@ def help_text(lemma: str) -> str:
     )
 
 
-# The context-free grammar for the queries recognized by this plug-in module
-
-_SPOTIFY_REGEXES = [
-    # r"^spilaðu ([\w|\s]+) með ([\w|\s]+) á spotify?$",
-    # r"^spilaðu ([\w|\s]+) á spotify$",
-    # r"^spilaðu ([\w|\s]+) á spotify",
-    r"^spilaðu plötuna (?P<album>[\w|\s]+) með (?P<artist>[\w|\s]+)$",
-    r"^spilaðu lagið (?P<track>[\w|\s]+) með (?P<artist>[\w|\s]+)$",
-    r"^spilaðu (?P<track_or_album>[\w|\s]+) með (?P<artist>[\w|\s]+)$",
-    # r"^spilaðu plötuna ([\w|\s]+)$ með ([\w|\s]+)$ á spotify$",
-]
+_SPOTIFY_REGEXES: Dict[str, _SpotifyRegexObject] = {
+    "track": {
+        "target_types": {"track"},
+        "rx": [r"^spilaðu lagið (?P<track>[\w|\s]+) með (?P<artist>[\w|\s]+)$"],
+    },
+    "album": {
+        "target_types": {"album"},
+        "rx": [r"^spilaðu plötuna (?P<album>[\w|\s]+) með (?P<artist>[\w|\s]+)$"],
+    },
+    "track_or_album": {
+        "target_types": {"track", "album"},
+        "rx": [r"^spilaðu (?P<track_or_album>[\w|\s]+) með (?P<artist>[\w|\s]+)$"],
+    },
+    "playlist": {
+        "target_types": {"playlist"},
+        "rx": [r"^spilaðu (spilunar|laga)listann (?P<playlist>[\w|\s]+)$"],
+    },
+    "artist": {
+        "target_types": {"artist"},
+        "rx": [r"^spilaðu (tónlistar|lista)manninn (?P<artist>[\w|\s]+)$"],
+    },
+    "anything": {
+        "target_types": {"track", "album", "playlist", "artist"},
+        "rx": [r"^spilaðu (?P<anything>[\w|\s]+)$"],
+    },
+}
 
 
 def handle_plain_text(q: Query) -> bool:
@@ -74,45 +95,40 @@ def handle_plain_text(q: Query) -> bool:
         return False
 
     ql = q.query.strip().rstrip("?")
-
-    for rx in _SPOTIFY_REGEXES:
-        print("I'm trying to match")
-        m = re.search(rx, ql, flags=re.IGNORECASE)
-        if m:
-            print("I matched")
-            cd = q.client_data("spotify")
-            if cd is None:
-                answer = "Það vantar að tengja Spotify aðgang."
-                q.set_answer(*gen_answer(answer))
+    keys = [
+        "track",
+        "album",
+        "track_or_album",
+        "playlist",
+        "artist",
+        "anything",
+    ]
+    names: Dict[str, Optional[str]] = {key: None for key in keys}
+    for key in keys:
+        for rx in _SPOTIFY_REGEXES[key]["rx"]:
+            print(f"k: {key},\n rx: {rx},\n ql: {ql}")
+            m = re.search(rx, ql, flags=re.IGNORECASE)
+            if m:
+                cd = q.client_data("spotify")
+                if cd is None:
+                    answer = "Það vantar að tengja Spotify aðgang."
+                    q.set_answer(*gen_answer(answer))
+                    return True
+                gd = m.groupdict()
+                names[key] = nominative_or_none(gd.get(key))
+                device_data = cast(SpotifyDeviceData, cd)
+                spotify_client = SpotifyClient(
+                    device_data,
+                    q.client_id,
+                )
+                target_types = _SPOTIFY_REGEXES[key]["target_types"]
+                try:
+                    spotify_client.play(target_types=target_types, **names)
+                except SpotifyError as e:
+                    q.set_url(spotify_client.track_url)
+                answer = f"Ég kveiki á {spotify_client.track_name or spotify_client.album_name}."
+                q.set_answer({"answer": answer}, answer, "")
                 return True
-            gd = m.groupdict()
-            keys = [
-                "track",
-                "album",
-                "track_or_album",
-                "playlist",
-                "artist",
-                "anything",
-            ]
-            names = {key: nominative_or_none(gd.get(key)) for key in keys}
-            device_data = cast(SpotifyDeviceData, cd)
-            spotify_client = SpotifyClient(
-                device_data,
-                q.client_id,
-            )
-            object_types = ("track","album")
-            print("I made it before the try except")
-            try:
-                print("I'm trying to play")
-                spotify_client.play(object_types=object_types, **names)
-            except SpotifyError as e:
-                print(e)
-                q.set_url(spotify_client.track_url)
-            answer = (
-                f"Ég kveiki á {spotify_client.track_name or spotify_client.album_name}."
-            )
-            q.set_answer({"answer": answer}, answer, "")
-            return True
     return False
 
 
@@ -123,7 +139,7 @@ def nominative_or_none(name: Optional[str]) -> Optional[str]:
     return None if name is None else NounPhrase(name).nominative or name
 
 
-# í stað þess að nota þetta þá er hægt að nota þetta
+# í stað þess að nota þetta þá er hægt að nota eitthvað svona
 # def extract_entities_and_intent(query: str) -> Tuple[str, Dict[str, str]]:
 #     entities = {}
 #     intent = None
