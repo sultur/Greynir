@@ -46,158 +46,190 @@ QSpeakerSkippa/nhbh → 'skippa:so'/nhbh | 'skipa:so'/nhbh
 QSpeakerSkipta/nhbh → 'skipta:so'/nhbh | "skipt"
 QSpeakerVeraVerða → "vera:so" | "verða:so"
 
+# FIXME: "Stilltu aftur á tónlist í hátalarann"
 QSpeakerResume →
     # "Kveiktu aftur á tónlist í stofunni"
-    QSpeakerKveikja/nhbh "aftur"? "á"? QSpeakerTónlist_þf QSpeakerÍHátalara? QSpeakerHvar?
+    QSpeakerKveikja/nhbh "aftur"? "á"? QSpeakerTónlist_þf QSpeakerÍHátalara? QSpeakerLoc?
+    # "Kveiktu á hátölurunum í stofunni"
+    | QSpeakerKveikja/nhbh "aftur"? "á"? QSpeakerHátalari_þgf QSpeakerLoc?
     # "Spilaðu aftur tónlist í hátölurunum í stofunni"
-    | QSpeakerSpila/nhbh "aftur"? "áfram"? QSpeakerTónlist_þf QSpeakerÍHátalara? QSpeakerHvar?
+    | QSpeakerSpila/nhbh "aftur"? "áfram"? QSpeakerTónlist_þf QSpeakerÍHátalara? QSpeakerLoc?
+    # "Spilaðu í hátölurunum í stofunni"
+    | QSpeakerSpila/nhbh QSpeakerÍHátalara? QSpeakerLoc?
+    # "Stilltu á tónlist í stofunni"
+    | QSpeakerSetja/nhbh "aftur"? "á"? QSpeakerTónlist_þf QSpeakerÍHátalara? QSpeakerLoc?
 
+#FIXME: "Slökktu í stofunni" (lights or speakers?)
 QSpeakerPause →
     # "Slökktu á tónlistinni í stofunni"
-    QSpeakerSlökkva/nhbh "á" QSpeakerTónlistEðaÚtvarp_þgf QSpeakerÍHátalara? QSpeakerHvar?
+    QSpeakerSlökkva/nhbh "á"? QSpeakerTónlistOrÚtvarp_þgf QSpeakerÍHátalara? QSpeakerLoc?
+    # "Slökktu tónlistina í stofunni"
+    | QSpeakerSlökkva/nhbh QSpeakerTónlistOrÚtvarp_þf QSpeakerÍHátalara? QSpeakerLoc?
     # "Slökktu á hátölurunum"
-    | QSpeakerSlökkva/nhbh QSpeakerÁEðaÍ QSpeakerHátalariEðaÚtvarp_þgf QSpeakerHvar?
+    | QSpeakerSlökkva/nhbh QSpeakerÁOrÍ? QSpeakerHátalari_þgf QSpeakerLoc?
     # "Pásaðu tónlistina í eldhúsinu"
-    | QSpeakerPása/nhbh QSpeakerTónlistEðaÚtvarp_þf QSpeakerÍHátalara? QSpeakerHvar?
+    | QSpeakerPása/nhbh QSpeakerTónlistOrÚtvarp_þf QSpeakerÍHátalara? QSpeakerLoc?
     # "Settu útvarpið á pásu"
-    | QSpeakerSetja/nhbh QSpeakerTónlistEðaÚtvarp_þf "á" "pásu"  QSpeakerÍHátalara? QSpeakerHvar?
+    | QSpeakerSetja/nhbh QSpeakerTónlistOrÚtvarp_þf? "á"? "pásu"  QSpeakerÍHátalara? QSpeakerLoc?
 
 QSpeakerNæstaLag → "næsta" "lag:hk"
-QSpeakerYfirÍEðaYfirÁ → "yfir" QSpeakerÁEðaÍ
+QSpeakerYfirÍOrYfirÁ → "yfir" QSpeakerÁOrÍ
 QSpeakerNextSong →
     QSpeakerSkippa/nhbh
     | QSpeakerNæstaLag
     | "ég" "vil" QSpeakerNæstaLag
-    | QSpeakerSetja/nhbh "á" QSpeakerNæstaLag
-    | QSpeakerSkipta/nhbh QSpeakerYfirÍEðaYfirÁ QSpeakerNæstaLag
-    | QSpeakerSkippa/nhbh QSpeakerYfirÍEðaYfirÁ QSpeakerNæstaLag
+    | QSpeakerSetja/nhbh "á"? QSpeakerNæstaLag
+    | QSpeakerSkipta/nhbh QSpeakerYfirÍOrYfirÁ QSpeakerNæstaLag
+    | QSpeakerSkippa/nhbh QSpeakerYfirÍOrYfirÁ QSpeakerNæstaLag
 
+#FIXME: How do user's say this? "Spólaðu til baka" "Farðu aftur á bak?". Complicated.
 QSpeakerLastSong → ""
 
 QSpeakerPlayRadio →
     QSpeakerPlayRadioWithStation
     | QSpeakerPlayRadioNoStation
 
+# FIXME: "Spilaðu Rondó" currently conflicts with Spotify
 QSpeakerPlayRadioWithStation →
     # "Settu hátalarana yfir á útvarpsstöðina X í eldhúsinu"
-    # ("á" is only optional because sometimes the TTS doesn't hear it)
-    QSpeakerSetja/nhbh QSpeakerHátalari_þf "yfir"? "á"? QSpeakerÚtvarpsstöðX_þf QSpeakerÍHátalara? QSpeakerHvar?
-    | QSpeakerKveikja/nhbh "á" QSpeakerÚtvarpsstöðX_þgf QSpeakerÍHátalara? QSpeakerHvar?
+    QSpeakerSetja/nhbh QSpeakerHátalari_þf? "yfir"? "á"? QSpeakerÚtvarpsstöðX_þf QSpeakerÍHátalara? QSpeakerLoc?
+    # "Kveiktu á Rondó"
+    | QSpeakerKveikja/nhbh "á" QSpeakerÚtvarpsstöðX_þgf QSpeakerÍHátalara? QSpeakerLoc?
+    # Spilaðu FM957 í eldhúsinu
+    | QSpeakerSpila/nhbh QSpeakerÚtvarpsstöðX_þf QSpeakerÍHátalara? QSpeakerLoc?
 
 QSpeakerPlayRadioNoStation →
     # "Settu hátalarana yfir á útvarpið í stofunni"
-    QSpeakerSetja/nhbh QSpeakerHátalari_þf? "yfir"? "á"? QSpeakerÚtvarp_þf QSpeakerÍHátalara? QSpeakerHvar?
+    QSpeakerSetja/nhbh QSpeakerHátalari_þf? "yfir"? "á"? QSpeakerÚtvarp_þf QSpeakerÍHátalara? QSpeakerLoc?
     # "Spilaðu útvarpið í hátölurunum í stofunni"
-    | QSpeakerSpila/nhbh "aftur"? "áfram"? QSpeakerÚtvarp_þf QSpeakerÍHátalara? QSpeakerHvar?
+    | QSpeakerSpila/nhbh "aftur"? "áfram"? QSpeakerÚtvarp_þf QSpeakerÍHátalara? QSpeakerLoc?
     # Kveiktu á útvarpinu inni í eldhúsi
-    | QSpeakerKveikja/nhbh "á" QSpeakerÚtvarp_þgf QSpeakerÍHátalara? QSpeakerHvar?
+    | QSpeakerKveikja/nhbh "á"? QSpeakerÚtvarp_þgf QSpeakerÍHátalara? QSpeakerLoc?
 
 QSpeakerIncreaseVolume →
-    QSpeakerGera/nhbh QSpeakerMusicOrSoundPhrase_þf QSpeakerMeiri_nf QSpeakerHvar
-    | QSpeakerGera/nhbh QSpeakerMusicOrSoundPhrase_þf QSpeakerHvar? QSpeakerMeiri_nf
-    | QSpeakerGera/nhbh QSpeakerTónlist_þf QSpeakerMeiri_nf QSpeakerÍHátalara? QSpeakerHvar?
-    | QSpeakerGera/nhbh QSpeakerHljóðEðaLæti_þf QSpeakerMeiri_nf QSpeakerÍHátalaraEðaÚtvarpi? QSpeakerHvar?
+    # "Gerðu tónlistina í hátölurunum hærri í stofunni"
+    QSpeakerGera/nhbh QSpeakerMusicOrSoundPhrase_þf QSpeakerMeiriOrHærri_nf QSpeakerLoc
+    # "Gerðu lætin meiri í stofunni"
+    | QSpeakerGera/nhbh QSpeakerMusicOrSoundPhrase_þf QSpeakerLoc? QSpeakerMeiriOrHærri_nf
+    # "Gerðu tónlistina meiri í hátölurunum í stofunni"
+    | QSpeakerGera/nhbh QSpeakerTónlist_þf QSpeakerMeiriOrHærri_nf QSpeakerÍHátalara QSpeakerLoc?
+    # "Gerðu hljóðið hærra í útvarpinu"
+    | QSpeakerGera/nhbh QSpeakerHljóðOrLæti_þf QSpeakerMeiriOrHærri_nf QSpeakerÍHátalaraOrÍÚtvarpi? QSpeakerLoc?
+    # "Hækkaðu tónlistina í hátölurunum í stofunni"
+    | QSpeakerHækka/nhbh QSpeakerMusicOrSoundPhrase_þf? QSpeakerÍHátalara? QSpeakerLoc?
+    # "Hækkaðu í hljóðinu í stofunni"
+    | QSpeakerHækka/nhbh "í"? QSpeakerMusicOrSoundPhrase_þgf QSpeakerÍHátalara? QSpeakerLoc?
+    # "Hækkaðu í útvarpinu"
+    | QSpeakerHækka/nhbh "í"? QSpeakerÚtvarp_þgf QSpeakerÍHátalara? QSpeakerLoc?
 
 QSpeakerDecreaseVolume →
-    QSpeakerGera/nhbh QSpeakerMusicOrSoundPhrase_þf QSpeakerMinni_nf QSpeakerHvar
-    | QSpeakerGera/nhbh QSpeakerMusicOrSoundPhrase_þf QSpeakerHvar? QSpeakerMinni_nf
-    | QSpeakerGera/nhbh QSpeakerTónlist_þf QSpeakerMinni_nf QSpeakerÍHátalara? QSpeakerHvar?
-    | QSpeakerGera/nhbh QSpeakerHljóðEðaLæti_þf QSpeakerMinni_nf QSpeakerÍHátalaraEðaÚtvarpi? QSpeakerHvar?
+    # "Gerðu tónlistina í hátölurunum lægri í stofunni"
+    QSpeakerGera/nhbh QSpeakerMusicOrSoundPhrase_þf QSpeakerMinniOrLægri_nf QSpeakerLoc
+    # "Gerðu lætin minni í stofunni"
+    | QSpeakerGera/nhbh QSpeakerMusicOrSoundPhrase_þf QSpeakerLoc? QSpeakerMinniOrLægri_nf
+    # "Gerðu tónlistina minni í hátölurunum í stofunni"
+    | QSpeakerGera/nhbh QSpeakerTónlist_þf QSpeakerMinniOrLægri_nf QSpeakerÍHátalara? QSpeakerLoc?
+    # "Gerðu hljóðið lægra í útvarpinu"
+    | QSpeakerGera/nhbh QSpeakerHljóðOrLæti_þf QSpeakerMinniOrLægri_nf QSpeakerÍHátalaraOrÍÚtvarpi? QSpeakerLoc?
+    # "Lækkaðu tónlistina í hátölurunum í stofunni"
+    | QSpeakerLækka/nhbh QSpeakerMusicOrSoundPhrase_þf? QSpeakerÍHátalara? QSpeakerLoc?
+    # "Lækkaðu í hljóðinu í stofunni"
+    | QSpeakerLækka/nhbh "í"? QSpeakerMusicOrSoundPhrase_þgf QSpeakerÍHátalara? QSpeakerLoc?
+    # "Lækkaðu í útvarpinu"
+    | QSpeakerLækka/nhbh "í"? QSpeakerÚtvarp_þgf QSpeakerÍHátalara? QSpeakerLoc?
 
-QSpeakerMakeRest →
-    QSpeakerMusicOrSoundPhrase_þf QSpeakerComparative_nf QSpeakerHvar
-    | QSpeakerMusicOrSoundPhrase_þf QSpeakerHvar? QSpeakerComparative_nf
-    | QSpeakerTónlist_þf QSpeakerComparative_nf QSpeakerÍHátalara? QSpeakerHvar?
-    | QSpeakerHljóðEðaLæti_þf QSpeakerComparative_nf QSpeakerÍHátalaraEðaÚtvarpi? QSpeakerHvar?
+# These are not used. They are a part of the older version of this grammar.
+# QSpeakerMakeRest →
+#     QSpeakerMusicOrSoundPhrase_þf QSpeakerComparative_nf QSpeakerLoc
+#     | QSpeakerMusicOrSoundPhrase_þf QSpeakerLoc? QSpeakerComparative_nf
+#     | QSpeakerTónlist_þf QSpeakerComparative_nf QSpeakerÍHátalara? QSpeakerLoc?
+#     | QSpeakerHljóðOrLæti_þf QSpeakerComparative_nf QSpeakerÍHátalaraOrÍÚtvarpi? QSpeakerLoc?
 
-QSpeakerSetRest →
-    QSpeakerHátalariEðaÚtvarp_þf? QSpeakerÁHvað QSpeakerHvar
-    | QSpeakerHátalariEðaÚtvarp_þf? QSpeakerHvar? QSpeakerÁHvað
+# QSpeakerSetRest →
+#     QSpeakerHátalariOrÚtvarp_þf? QSpeakerÁHvað QSpeakerLoc
+#     | QSpeakerHátalariOrÚtvarp_þf? QSpeakerLoc? QSpeakerÁHvað
 
-QSpeakerLetRest →
-    QSpeakerVeraVerða QSpeakerTónlist_nf QSpeakerÍHátalara? QSpeakerHvar?
-    | QSpeakerMusicOrSoundPhrase_þf QSpeakerHvar QSpeakerVeraVerða QSpeakerComparative_nf
-    | QSpeakerMusicOrSoundPhrase_þf QSpeakerVeraVerða QSpeakerComparative_nf QSpeakerHvar?
-    | QSpeakerTónlist_þf QSpeakerVeraVerða QSpeakerComparative_nf QSpeakerÍHátalara? QSpeakerHvar?
-    | QSpeakerHljóðEðaLæti_þf QSpeakerVeraVerða QSpeakerComparative_nf QSpeakerÍHátalaraEðaÚtvarpi? QSpeakerHvar?
+# QSpeakerLetRest →
+#     QSpeakerVeraVerða QSpeakerTónlist_nf QSpeakerÍHátalara? QSpeakerLoc?
+#     | QSpeakerMusicOrSoundPhrase_þf QSpeakerLoc QSpeakerVeraVerða QSpeakerComparative_nf
+#     | QSpeakerMusicOrSoundPhrase_þf QSpeakerVeraVerða QSpeakerComparative_nf QSpeakerLoc?
+#     | QSpeakerTónlist_þf QSpeakerVeraVerða QSpeakerComparative_nf QSpeakerÍHátalara? QSpeakerLoc?
+#     | QSpeakerHljóðOrLæti_þf QSpeakerVeraVerða QSpeakerComparative_nf QSpeakerÍHátalaraOrÍÚtvarpi? QSpeakerLoc?
 
-# QSpeakerTurnOrOffOnRest → QSpeakerÁX QSpeakerÍHátalara? QSpeakerHvar?
+# QSpeakerPlayOrPauseRest →
+#     QSpeakerTónlist_þf QSpeakerÍHátalara? QSpeakerLoc?
+#     | "útvarpið" QSpeakerÍHátalara? QSpeakerLoc?
+#     | "afspilun" QSpeakerÍHátalara? QSpeakerLoc?
+#     | QSpeakerÚtvarpsstöðX_þf QSpeakerÍHátalara? QSpeakerLoc?
+#     | QSpeakerNextOrPrev_þf QSpeakerÍHátalara? QSpeakerLoc?
 
-QSpeakerPlayOrPauseRest →
-    QSpeakerTónlist_þf QSpeakerÍHátalara? QSpeakerHvar?
-    | "útvarpið" QSpeakerÍHátalara? QSpeakerHvar?
-    | "afspilun" QSpeakerÍHátalara? QSpeakerHvar?
-    | QSpeakerÚtvarpsstöðX_þf QSpeakerÍHátalara? QSpeakerHvar?
-    | QSpeakerNextOrPrev_þf QSpeakerÍHátalara? QSpeakerHvar?
+# QSpeakerIncreaseOrDecreaseRest →
+#     QSpeakerMusicOrSoundPhrase_þf QSpeakerLoc?
+#     | "í" QSpeakerTónlistOrHátalariOrÚtvarp_þgf QSpeakerLoc?
+#     | "í" QSpeakerRadioStation QSpeakerLoc?
 
-QSpeakerIncreaseOrDecreaseRest →
-    QSpeakerMusicOrSoundPhrase_þf QSpeakerHvar?
-    | "í" QSpeakerTónlistEðaHátalariEðaÚtvarp_þgf QSpeakerHvar?
-    | "í" QSpeakerRadioStation QSpeakerHvar?
+# QSpeakerComparative/fall →
+#     QSpeakerMeiriOrHærri/fall
+#     | QSpeakerMinniOrLægri/fall
 
-QSpeakerComparative/fall →
-    QSpeakerMeiri/fall
-    | QSpeakerMinni/fall
+# QSpeakerÁHvað →
+#     "yfir"? "á"? QSpeakerTónlistOrÚtvarp_þf
+#     | "yfir"? "á"? QSpeakerNewSetting_þf
 
-# Sometimes "á" isn't heard by the TTS
-QSpeakerÁHvað →
-    "yfir"? "á"? QSpeakerTónlistEðaÚtvarp_þf
-    | "yfir"? "á"? QSpeakerNewSetting_þf
+# QSpeakerNewSetting/fall →
+#     QSpeakerÚtvarpsstöðX/fall
+#     | QSpeakerNewPlayOrPause/fall
+#     | QSpeakerNextOrPrev/fall
 
-QSpeakerNewSetting/fall →
-    QSpeakerÚtvarpsstöðX/fall
-    | QSpeakerNewPlayOrPause/fall
-    | QSpeakerNextOrPrev/fall
+# QSpeakerNewPlayOrPause/fall →
+#     QSpeakerNewPlay/fall
+#     | QSpeakerNewPause/fall
+
+# QSpeakerNewPlay/fall →
+#     "play"
+#     | "plei"
+#     | "pley"
+
+# QSpeakerNewPause/fall →
+#     'pása'/fall
+#     | 'stopp'/fall
+
+# QSpeakerNextOrPrev/fall →
+#     QSpeakerNextSong/fall
+#     | QSpeakerPrevSong/fall
+
+# QSpeakerNextSong/fall →
+#     'næstur:lo'_kvk/fall 'lag:hk'_et/fall
+#     | 'lag:hk'_et_gr/fall "á" "eftir" "þessu"?
+
+# QSpeakerPrevSong/fall →
+#     'seinastur:lo'_kvk/fall 'lag:hk'_et/fall
+#     | 'síðastur:lo'_kvk/fall 'lag:hk'_et/fall
+#     | 'fyrri:lo'_kvk/fall 'lag:hk'_et/fall
+#     | 'lag:hk'_et_gr/fall "á" "undan" "þessu"?
 
 QSpeakerÚtvarpsstöðX/fall →
     QSpeakerÚtvarpsstöð/fall? QSpeakerRadioStation
-
-QSpeakerNewPlayOrPause/fall →
-    QSpeakerNewPlay/fall
-    | QSpeakerNewPause/fall
-
-QSpeakerNewPlay/fall →
-    "play"
-    | "plei"
-    | "pley"
-
-QSpeakerNewPause/fall →
-    'pása'/fall
-    | 'stopp'/fall
-
-QSpeakerNextOrPrev/fall →
-    QSpeakerNextSong/fall
-    | QSpeakerPrevSong/fall
-
-QSpeakerNextSong/fall →
-    'næstur:lo'_kvk/fall 'lag:hk'_et/fall
-    | 'lag:hk'_et_gr/fall "á" "eftir" "þessu"?
-
-QSpeakerPrevSong/fall →
-    'seinastur:lo'_kvk/fall 'lag:hk'_et/fall
-    | 'síðastur:lo'_kvk/fall 'lag:hk'_et/fall
-    | 'fyrri:lo'_kvk/fall 'lag:hk'_et/fall
-    | 'lag:hk'_et_gr/fall "á" "undan" "þessu"?
 
 QSpeakerMusicOrSoundPhrase/fall →
     QSpeakerMusicPhrase/fall
     | QSpeakerSoundPhrase/fall
 
 QSpeakerMusicPhrase/fall →
-    QSpeakerTónlist/fall QSpeakerHátalariEðaÚtvarp_ef?
-    | QSpeakerTónlist/fall "í" QSpeakerHátalariEðaÚtvarp_þgf
+    QSpeakerTónlist/fall QSpeakerHátalariOrÚtvarp_ef?
+    | QSpeakerTónlist/fall "í" QSpeakerHátalariOrÚtvarp_þgf
 
 QSpeakerSoundPhrase/fall →
-    QSpeakerHljóðEðaLæti/fall? QSpeakerTónlistEðaHátalariEðaÚtvarp_ef?
-    | QSpeakerHljóðEðaLæti/fall "í" QSpeakerTónlistEðaHátalariEðaÚtvarp_þgf?
+    QSpeakerHljóðOrLæti/fall? QSpeakerTónlistOrHátalariOrÚtvarp_ef?
+    | QSpeakerHljóðOrLæti/fall "í" QSpeakerTónlistOrHátalariOrÚtvarp_þgf?
 
-QSpeakerHljóðEðaLæti/fall →
+QSpeakerHljóðOrLæti/fall →
     QSpeakerHljóð/fall
     | QSpeakerLæti/fall
 
-QSpeakerTónlistEðaHátalariEðaÚtvarp/fall →
+QSpeakerTónlistOrHátalariOrÚtvarp/fall →
     QSpeakerTónlist/fall
-    | QSpeakerHátalariEðaÚtvarp/fall
+    | QSpeakerHátalariOrÚtvarp/fall
 
 QSpeakerÚtvarpsstöð/fall →
     'útvarpsstöð'_et/fall
@@ -217,23 +249,23 @@ QSpeakerLæti/fall →
 QSpeakerHátalari/fall → 'hátalari'/fall
 QSpeakerÚtvarp/fall → 'útvarp'/fall
 
-QSpeakerHátalariEðaÚtvarp/fall →
+QSpeakerHátalariOrÚtvarp/fall →
     QSpeakerHátalari/fall
     | QSpeakerÚtvarp/fall
 
-QSpeakerÍHátalaraEðaÚtvarpi → "í" QSpeakerHátalariEðaÚtvarp_þgf
+QSpeakerÍHátalaraOrÍÚtvarpi → "í" QSpeakerHátalariOrÚtvarp_þgf
 QSpeakerÍHátalara → "í" QSpeakerHátalari_þgf
 # TODO: ^ Score needed for these NT's?
 
-QSpeakerTónlistEðaÚtvarp/fall →
+QSpeakerTónlistOrÚtvarp/fall →
     QSpeakerTónlist/fall
     | QSpeakerÚtvarp/fall
 
-QSpeakerMeiri/fall →
+QSpeakerMeiriOrHærri/fall →
     'mikill:lo'_mst/fall
     | 'hár:lo'_mst/fall
 
-QSpeakerMinni/fall →
+QSpeakerMinniOrLægri/fall →
     'lítill:lo'_mst/fall
     | 'lágur:lo'_mst/fall
 
@@ -249,7 +281,7 @@ QSpeakerStaðarAo →
     | "út"
     | "úti"
 
-QSpeakerÁEðaÍ → "á" | "í"
+QSpeakerÁOrÍ → "á" | "í"
 
 QSpeakerRoom/fall → no/fall
 
@@ -266,9 +298,9 @@ QSpeakerEverywhere →
     | "út" "um" QSpeakerAlltHús_nf
     | "í" QSpeakerAlltHús_þgf
 
-QSpeakerHvar →
+QSpeakerLoc →
     # "inni í eldhúsi", "úti á palli", "frammi í stofu", ...
-    QSpeakerStaðarAo? QSpeakerÁEðaÍ QSpeakerRoom_þgf
+    QSpeakerStaðarAo? QSpeakerÁOrÍ QSpeakerRoom_þgf
     # "alls staðar", "í öllu húsinu", "í öllum herbergjum", ...
     | QSpeakerEverywhere
 
@@ -278,24 +310,24 @@ QSpeakerRadioStation →
     | QSpeakerBylgjan
     | QSpeakerFlashback
     | QSpeakerFM957
-    | QSpeakerFM_Extra
+    | QSpeakerFMExtra
     | QSpeakerGullbylgjan
     | QSpeakerK100
     | QSpeakerKissFM
     | QSpeakerLéttbylgjan
     | QSpeakerRetro
     | QSpeakerRondó
-    | QSpeakerRás_1
-    | QSpeakerRás_2
+    | QSpeakerRás1
+    | QSpeakerRás2
     | QSpeakerX977
-    | QSpeakerÍslenska_Bylgjan
-    | QSpeakerÚtvarp_101
-    | QSpeakerÚtvarp_Suðurland
-    | QSpeakerÚtvarp_Saga
-    | QSpeaker70s_Flashback
-    | QSpeaker80s_Flashback
-    | QSpeaker80s_Bylgjan
-    | QSpeaker90s_Flashback
+    | QSpeakerÍslenskaBylgjan
+    | QSpeakerÚtvarp101
+    | QSpeakerÚtvarpSuðurland
+    | QSpeakerÚtvarpSaga
+    | QSpeaker70sFlashback
+    | QSpeaker80sFlashback
+    | QSpeaker80sBylgjan
+    | QSpeaker90sFlashback
 
 QSpeakerBylgjan →
     "Bylgjan"
@@ -307,7 +339,7 @@ QSpeakerBylgjan →
     | "bylgjunni"
     | "bylgjunnar"
 
-QSpeakerÚtvarp_Saga →
+QSpeakerÚtvarpSaga →
     "Útvarp" "Saga"
     | "Útvarp" "Sögu"
     | "Útvarpi" "Sögu"
@@ -361,11 +393,11 @@ QSpeakerX977 →
     | "x" "níu" "sjö" "sjö"
     | "x-977"
 
-QSpeakerRás_1 →
+QSpeakerRás1 →
     "rás" "1"
     | "rás" "eitt"
 
-QSpeakerRás_2 →
+QSpeakerRás2 →
     "rás" "2"
     | "rás" "tvö"
 
@@ -399,14 +431,14 @@ QSpeakerFlashback →
     "flassbakk" "fm"?
     | "flass" "bakk" "fm"?
 
-QSpeakerÚtvarp_101 →
+QSpeakerÚtvarp101 →
     "útvarp"? "101"
     | "útvarp"? "hundrað" "og" "einn"
     | "útvarp"? "hundrað" "og" "eitt"
     | "útvarp"? "hundrað" "einn"
     | "útvarp"? "hundrað" "1"
 
-QSpeaker80s_Bylgjan →
+QSpeaker80sBylgjan →
     QSpeaker80s "Bylgjan"
     | QSpeaker80s "Bylgjuna"
     | QSpeaker80s "Bylgjunni"
@@ -416,7 +448,7 @@ QSpeaker80s_Bylgjan →
     | QSpeaker80s "bylgjunni"
     | QSpeaker80s "bylgjunnar"
 
-QSpeakerÍslenska_Bylgjan →
+QSpeakerÍslenskaBylgjan →
     "íslenska" "Bylgjan"
     | "íslensku" "Bylgjuna"
     | "íslensku" "Bylgjunni"
@@ -428,15 +460,15 @@ QSpeakerÍslenska_Bylgjan →
 
 QSpeakerApparatið → "apparatið"
 
-QSpeakerFM_Extra → "fm" "extra"
+QSpeakerFMExtra → "fm" "extra"
 
-QSpeakerÚtvarp_Suðurland →
+QSpeakerÚtvarpSuðurland →
     "útvarp"? "suðurland"
     | "útvarps"? "suðurlands"
 
-QSpeaker70s_Flashback → QSpeaker70s QSpeakerFlashbackWord
-QSpeaker80s_Flashback → QSpeaker80s QSpeakerFlashbackWord
-QSpeaker90s_Flashback → QSpeaker90s QSpeakerFlashbackWord
+QSpeaker70sFlashback → QSpeaker70s QSpeakerFlashbackWord
+QSpeaker80sFlashback → QSpeaker80s QSpeakerFlashbackWord
+QSpeaker90sFlashback → QSpeaker90s QSpeakerFlashbackWord
 
 QSpeakerFlashbackWord →
     "flassbakk"

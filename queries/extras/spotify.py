@@ -23,8 +23,6 @@
 from typing import Dict, Optional, Union, List, cast, Set
 
 
-import logging
-import json
 from typing_extensions import TypedDict, Literal, NotRequired
 from urllib.parse import urlencode as urlencode
 from requests.exceptions import HTTPError
@@ -32,7 +30,7 @@ from datetime import datetime, timedelta
 
 from utility import read_api_key
 from query import Query, ClientDataDict
-from queries import POST_json, PUT, GET_json
+from queries import POST_json, PUT, GET_json, HTTPRequestSpecial
 
 
 class SpotifyError(Exception):
@@ -106,20 +104,20 @@ _API_ENDPOINT = "https://api.spotify.com/v1"
 
 _object_types = ("track", "album", "track_or_album", "playlist", "artist", "anything")
 
-# TODO: Remove debug print statements
-# TODO: Testing and proper error handling
 # TODO: Find a better way to get a song url for an artist. Currently, the most popular track
-# is found and played off album. See Siri's "play music by ARTIST_NAME on Spotify"
+# is found and played off album. See Siri's "play music by ARTIST_NAME on Spotify". Might be impossible
 # TODO: Fix the feedback properties (returning name of artist, album etc.) Perhaps by
 # returning a type out of the play function and then using that type in the module to choose a response.
 # TODO: Decide the architecture of the search function, which ones should
 # be inner functions, which functions should be joined, etc.
+# TODO: Store last played song in the client data and use that in case playback is resumed
+# when it is empty. Altough, it might be better to just handle it with a "Veldu lag,
+# tónlistarmann, plötu eða lagalista." response from Embla.
 
 
 class SpotifyClient:
     _encoded_credentials = read_api_key("SpotifyEncodedCredentials")
 
-    # FIXME: Not modular doing this both here and in the sonos class
     @classmethod
     def create_token(cls, client_id: str, code: str, host: str) -> None:
         """
@@ -282,7 +280,6 @@ class SpotifyClient:
         except Exception as e:
             raise SpotifyError(f"Error during search GET request to Spotify: {e}")
 
-        # FIXME: The terminology here, including the search_object variable
         # Fill a dict with the relevant response objects for each type, if non-empty
         response_objects: _SpotifySearchResponseObjects = {
             t_type: response[f"{t_type}s"]["items"][0]  # type: ignore
@@ -323,8 +320,8 @@ class SpotifyClient:
 
         return result_object
 
-    # FIXME: God awful function, needs to incorporated into something else
-    # , or something. For example, putting all of these variables into a dict,
+    # FIXME: God awful function, needs to incorporated into something else,
+    # or something. For example, putting all of these variables into a dict,
     # which would also help clean up _search_spotify
     def _find_result_type(
         self,
@@ -364,21 +361,13 @@ class SpotifyClient:
             c_obj = resp_obj.get(c_type)
             if c_obj is None:
                 continue
-            # Candidate name
+            # Candidate name, type and distance (between candidate name and target name)
             c_name = cast(_SpotifyObjectDict, c_obj)["name"]
-            # Candidate type
             c_type = cast(Literal["album", "artist", "track", "playlist"], c_type)
-            # Candidate distance is the levenshtein distance
-            # between the given object's name and the target's name
             c_dist = self._levenshtein_distance(c_name.casefold(), t_name.casefold())  # type: ignore
             # Update result type and result name if new minimum distance
-            print(
-                f"candidate type: {c_type}, candidate name: {c_name}, candidate distance: {c_dist}"
-            )
             if min_dist == float("inf") or c_dist < min_dist:
-                print(f"new minimum distance: {c_dist}")
                 r_type = c_type
-                r_name = c_name
                 min_dist = c_dist
 
         assert r_type  # type: ignore
@@ -436,7 +425,6 @@ class SpotifyClient:
             "by_artist": by_artist,
             "object_type": r_type,
         }
-        print(f"result: {result}")
         return result
 
     def _get_song_url(
@@ -524,6 +512,10 @@ class SpotifyClient:
             raise SpotifyError(f"Error in PUT request playing album on Spotify: {e}")
 
     @property
+    def name(self) -> str:
+        return self._result_name
+
+    @property
     def album_name(self) -> str:
         if self._result_type != "album":
             raise SpotifyError("Album not target object of query.")
@@ -531,7 +523,6 @@ class SpotifyClient:
 
     @property
     def track_name(self) -> str:
-        print(self._result_name)
         if self._result_type != "track":
             raise SpotifyError("Track not target object of query.")
         return self._result_name
@@ -553,3 +544,36 @@ class SpotifyClient:
         if self._url is None:
             raise SpotifyError("No url found in Spotify class instance.")
         return self._url
+
+    ###############################################################
+    # These functions are not used right now. But, here they are. #
+    ###############################################################
+
+    def resume_playback(self) -> None:
+        """
+        Resumes playback on Spotify, if possible.
+        """
+        url = f"{_API_ENDPOINT}/me/player/play"
+        try:
+            # Could not reproduce error where there is an active device
+            # but no active playback. So unknown status code.
+            PUT(url, headers=self._headers, status_code=[404])
+        except HTTPRequestSpecial as e:
+            raise SpotifyError(
+                f"Error in PUT request resuming playback. No active device."
+            )
+        except HTTPError as e:
+            raise SpotifyError(
+                f"Error in PUT request resuming playback on Spotify: {e}"
+            )
+
+    def pause_playback(self) -> None:
+        url = f"{_API_ENDPOINT}/me/player/pause"
+        try:
+            PUT(url, headers=self._headers, status_code=[403, 404])
+        except HTTPRequestSpecial:
+            raise SpotifyError(
+                f"Error in PUT request pausing playback. No active device (404) or already paused (403)."
+            )
+        except HTTPError as e:
+            raise SpotifyError(f"Error in PUT request pausing playback on Spotify: {e}")

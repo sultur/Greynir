@@ -218,10 +218,10 @@ def sentence(state: QueryStateDict, result: Result) -> None:
         # FIXME: Need to raise the actual error from sonos.py
         try:
             if qk == "turn_on":
-                sonos_client.toggle_play()
+                sonos_client.play()
                 answer = "Ég kveikti á tónlist"
             elif qk == "turn_off":
-                sonos_client.toggle_pause()
+                sonos_client.pause()
                 answer = "Ég slökkti á tónlistinni"
             elif qk == "increase_volume":
                 sonos_client.increase_volume()

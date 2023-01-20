@@ -69,6 +69,13 @@ AnswerTuple = Tuple[Dict[str, str], str, str]
 JsonResponse = Union[None, List[Any], Dict[str, Any]]
 JSON_T = Union[None, str, int, float, bool, Dict[str, "JSON_T"], List["JSON_T"]]
 
+
+class HTTPRequestSpecial(HTTPError):
+    """Special exception class for HTTP requests to be used when the status code is a predicted."""
+
+    ...
+
+
 MONTH_ABBREV_ORDERED: Sequence[str] = (
     "jan",
     "feb",
@@ -438,9 +445,11 @@ def GET_json(
     *,
     params: Optional[Dict[str, Any]] = None,
     headers: Optional[Dict[str, str]] = None,
+    status_code: List[int] = [],
 ) -> Dict[str, Any]:
     """Send a GET request to the URL, expecting a JSON response which is
-    parsed and returned as a Python data structure."""
+    parsed and returned as a Python data structure. If the status code is in the optional
+    input list, HTTPRequestSpecial is raised."""
 
     # Send request
     try:
@@ -448,6 +457,9 @@ def GET_json(
     except Exception as e:
         logging.warning(str(e))
         raise e
+
+    if r.status_code in status_code:
+        raise HTTPRequestSpecial(r)
 
     try:
         r.raise_for_status()
@@ -470,9 +482,11 @@ def POST_json(
     json_data: JSON_T = None,
     data: Any = None,
     headers: Optional[Dict[str, str]] = None,
+    status_code: List[int] = [],
 ) -> Dict[str, Any]:
     """Send a POST request to the URL, expecting a JSON response which is
-    parsed and returned as a Python data structure."""
+    parsed and returned as a Python data structure. If the status code is in the optional
+    input list, HTTPRequestSpecial is raised."""
 
     # Send request
     try:
@@ -480,6 +494,9 @@ def POST_json(
     except Exception as e:
         logging.warning(str(e))
         raise e
+
+    if r.status_code in status_code:
+        raise HTTPRequestSpecial(r)
 
     try:
         r.raise_for_status()
@@ -502,8 +519,10 @@ def PUT(
     json_data: JSON_T = None,
     data: Any = None,
     headers: Optional[Dict[str, str]] = None,
+    status_code: List[int] = [],
 ) -> None:
-    """Send a POST request to the URL."""
+    """Send a POST request to the URL. If the status code is in the optional
+    input list, HTTPRequestSpecial is raised."""
 
     # Send request
     try:
@@ -511,6 +530,9 @@ def PUT(
     except Exception as e:
         logging.warning(str(e))
         raise e
+
+    if r.status_code in status_code:
+        raise HTTPRequestSpecial(r)
 
     try:
         r.raise_for_status()

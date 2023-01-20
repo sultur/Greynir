@@ -30,7 +30,7 @@ from requests.exceptions import HTTPError
 
 from utility import read_api_key
 from query import Query, ClientDataDict
-from queries import POST_json, GET_json
+from queries import POST_json, GET_json, HTTPRequestSpecial
 
 
 # Translate various icelandic room names to
@@ -148,10 +148,7 @@ class _SonosGroupResponse(TypedDict):
 
 
 class _SonosSessionResponse(TypedDict, total=False):
-    sessionState: str
     sessionId: Required[str]
-    sessionCreated: bool
-    customData: Optional[str]
 
 
 _OAUTH_ACCESS_ENDPOINT = "https://api.sonos.com/login/v3/oauth/access"
@@ -163,9 +160,7 @@ _PLAYBACKSESSIONS_ENDPOINT = f"{_API_ENDPOINT}/playbackSessions"
 _VOLUME_INCREMENT = 20
 
 # TODO - Failsafe for responses from playback, volume endpoints. i.e. return appropriate error message to user.
-# TODO - Add some error when households exceed one
-# TODO - Fix the r, resp, response inconsistency
-# TODO - Use POST_json in the post request in create_or_join_session, needs refactoring in the POST_json function
+# TODO - Add support for when households exceed one
 class SonosClient:
     _encoded_credentials: str = read_api_key("SonosEncodedCredentials")
 
@@ -276,22 +271,21 @@ class SonosClient:
         """
         Sets the households, and household ID for the user
         """
-        response = cast(
+        r = cast(
             _SonosHouseholdResponse,
             GET_json(_HOUSEHOLDS_ENDPOINT, headers=self._headers),
         )
-        # Need at least one household.
-        # FIXME: Add support for multiple households.
-        if len(response["households"]) == 0:
+        households = r["households"]
+        if len(households) == 0:
             raise SonosError(
                 "No households found.",
                 "Ekki fannst Sonos-kerfi tengt Sonos-aðganginum þínum.",
                 "Ekki fannst virk Sonos-tenging.",
             )
-        # elif len(self._households) > 1:
-        #     raise SonosError("More than one household found.")
+        elif len(households) > 1:
+            raise SonosError("More than one household found.")
         else:
-            self._households = response["households"]
+            self._households = households
             self._household_id = self._households[0]["id"]
 
     def _group_api_call(self) -> None:
@@ -300,10 +294,10 @@ class SonosClient:
         """
         url = f"{_HOUSEHOLDS_ENDPOINT}/{self._household_id}/groups"
 
-        response = cast(_SonosGroupResponse, GET_json(url, headers=self._headers))
+        r = cast(_SonosGroupResponse, GET_json(url, headers=self._headers))
 
-        self._set_groups(response)
-        self._set_player_id(response)
+        self._set_groups(r)
+        self._set_player_id(r)
 
     def _set_groups(self, response: _SonosGroupResponse) -> None:
         """
@@ -395,34 +389,30 @@ class SonosClient:
         url = f"{_GROUP_ENDPOINT}/{self._group_id}/playbackSession/joinOrCreate"
 
         payload = {"appId": "com.mideind.embla", "appContext": "embla123"}
-        # FIXME: Use something other than embla123
 
+        # If there is a session in progress, the post request returns a 499,
+        # in which case toggling that session off should give access to the group.
         try:
-            r = requests.post(url, json=payload, headers=self._headers)
-            if r.status_code == 499:
-                raise SonosError("Another session in progress.")
-            response = cast(
+            r = cast(
                 _SonosSessionResponse,
-                r.json(),
+                POST_json(
+                    url, json_data=payload, headers=self._headers, status_code=[499]
+                ),
             )
-            return response["sessionId"]
-        except SonosError:
-            self.toggle_pause()
+        except HTTPRequestSpecial:
+            self.pause()
             try:
-                r = requests.post(url, json=payload, headers=self._headers)
-                if r.status_code == 499:
-                    raise SonosError("Another session in progress.")
-                response = cast(
+                r = cast(
                     _SonosSessionResponse,
-                    r.json(),
+                    POST_json(url, json_data=payload, headers=self._headers),
                 )
-                return response["sessionId"]
-            except SonosError:
+            except Exception:
                 raise SonosError(
                     "Could neither create nor join session.",
-                    "Ekki tókst nálgast Sonos. Ef önnur spilun er í gangi, slökktu á henni og reyndu aftur.",
-                    "Ekki tókst að hefja spilun.",
+                    "Ekki tókst nálgast Sonos. Ef önnur spilun er í gangi, slökktu á henni",
+                    "Ekki tókst nálgast Sonos. Ef önnur spilun er í gangi, slökktu á henni",
                 )
+        return r["sessionId"]
 
     def play_radio_stream(self, radio_url: Optional[str]) -> None:
         """
@@ -453,7 +443,11 @@ class SonosClient:
                 "last_group_id": self._group_id,
             },
         }
-        self._store_data(data_dict)
+        Query.store_query_data(
+            self._client_id,
+            "sonos",
+            cast(ClientDataDict, data_dict),
+        )
 
     def increase_volume(self) -> None:
         """
@@ -473,7 +467,7 @@ class SonosClient:
         payload = {"volumeDelta": -_VOLUME_INCREMENT}
         POST_json(url, json_data=payload, headers=self._headers)
 
-    def toggle_play(self) -> None:
+    def play(self) -> None:
         """
         Turns on playback for a group
         """
@@ -481,7 +475,7 @@ class SonosClient:
 
         POST_json(url, headers=self._headers)
 
-    def toggle_pause(self) -> None:
+    def pause(self) -> None:
         """
         Turns off playback for a group
         """
@@ -503,7 +497,6 @@ class SonosClient:
             "priority": "HIGH",
             "clipType": "CUSTOM",
         }
-
         POST_json(url, json_data=payload, headers=self._headers)
 
     def play_chime(self) -> None:

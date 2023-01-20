@@ -28,7 +28,7 @@
 
 """
 # TODO: Make grammar
-# TODO: Negla nöfnum í nefnifall
+# TODO: Delete commented out alt code at bottom of file
 """
 with GreynirBin.get_db() as db:
         db.lookup("ordid") #output er tupla, ef seinna elementid er ekki tomur listi tha er thetta islenskt
@@ -38,7 +38,6 @@ from typing import cast, Optional, Dict, List
 import random
 from typing_extensions import TypedDict
 import re
-import logging
 
 from reynir import NounPhrase
 
