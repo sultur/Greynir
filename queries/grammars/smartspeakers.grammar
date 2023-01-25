@@ -73,13 +73,19 @@ QSpeakerPause →
     | QSpeakerSetja/nhbh QSpeakerTónlistOrÚtvarp_þf? "á"? "pásu"  QSpeakerÍHátalara? QSpeakerLoc?
 
 QSpeakerNæstaLag → "næsta" "lag:hk"
-QSpeakerYfirÍOrYfirÁ → "yfir" QSpeakerÁOrÍ
+QSpeakerYfirÍOrYfirÁ → "yfir"? QSpeakerÁOrÍ
 QSpeakerNextSong →
+    # "Skippaðu"
     QSpeakerSkippa/nhbh
+    # "Næsta lag"
     | QSpeakerNæstaLag
+    # "Ég vil næsta lag"
     | "ég" "vil" QSpeakerNæstaLag
+    # "Settu á næsta lag"
     | QSpeakerSetja/nhbh "á"? QSpeakerNæstaLag
+    # "Skiptu í næsta lag"
     | QSpeakerSkipta/nhbh QSpeakerYfirÍOrYfirÁ QSpeakerNæstaLag
+    # "Skiptu yfir á næsta lag"
     | QSpeakerSkippa/nhbh QSpeakerYfirÍOrYfirÁ QSpeakerNæstaLag
 
 #FIXME: How do user's say this? "Spólaðu til baka" "Farðu aftur á bak?". Complicated.

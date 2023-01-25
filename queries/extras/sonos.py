@@ -173,7 +173,7 @@ class SonosClient:
         request_data = {
             "grant_type": "authorization_code",
             "code": code,
-            "redirect_uri": f"http://{host}/connect_sonos.api",
+            "redirect_uri": f"https://{host}/connect_sonos.api",
         }
         try:
             resp = POST_json(

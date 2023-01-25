@@ -105,7 +105,6 @@ def handle_plain_text(q: Query) -> bool:
     names: Dict[str, Optional[str]] = {key: None for key in keys}
     for key in keys:
         for rx in _SPOTIFY_REGEXES[key]["rx"]:
-            print(f"k: {key},\n rx: {rx},\n ql: {ql}")
             m = re.search(rx, ql, flags=re.IGNORECASE)
             if m:
                 cd = q.client_data("spotify")

@@ -181,7 +181,6 @@ def QSpeakerRoom(node: Node, params: ParamList, result: Result) -> None:
 def QSpeakerRadioStation(node: Node, params: ParamList, result: Result) -> None:
     child = cast(NonterminalNode, node.child)
     station = child.nt_base.replace("QSpeaker", "").replace("_", " ")
-    print("STATION IS ", station)
     result.target = "radio"
     result.station = station
 
